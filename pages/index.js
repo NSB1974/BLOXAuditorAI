@@ -1,32 +1,22 @@
 import Head from 'next/head'
-import Image from 'next/image'
-import { Inter } from 'next/font/google'
-
-import { AuditButton, Footer, Navbar } from '@/components'
-
-
-const inter = Inter({ subsets: ['latin'] })
+import { AuditButton, Navbar } from '@/components'
 
 export default function Home() {
   return (
     <>
-      <div className='     '>
+      <div>
         <Head>
-          <title>Chainsentry contract Ai</title>
-          <meta name="description" content="Chainsentry contract Ai, built on Next.js and Tailwindcss" />
+          <title>Bloxology — AI Smart Contract Auditor</title>
+          <meta name="description" content="Bloxology AI smart contract auditor. Paste a contract address to detect vulnerabilities and generate a full audit report." />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
-          <link rel="icon" href="/favicon.ico" />
+          <link rel="icon" href="/bloxology-logo.svg" />
         </Head>
 
-        <div className=' particle-bg h-fit' >
-
+        <div className="h-fit">
           <Navbar />
           <AuditButton />
         </div>
-
-
       </div>
-
     </>
   )
 }

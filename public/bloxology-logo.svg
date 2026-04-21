@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" fill="none">
+  <defs>
+    <linearGradient id="topFace" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#60A5FA"/>
+      <stop offset="100%" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="leftFace" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3B82F6"/>
+      <stop offset="100%" stop-color="#1E40AF"/>
+    </linearGradient>
+    <linearGradient id="rightFace" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#818CF8"/>
+      <stop offset="100%" stop-color="#3B82F6"/>
+    </linearGradient>
+    <linearGradient id="innerLeft" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#93C5FD" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#3B82F6" stop-opacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="innerRight" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#A5B4FC" stop-opacity="0.7"/>
+      <stop offset="100%" stop-color="#6366F1" stop-opacity="0.4"/>
+    </linearGradient>
+    <linearGradient id="innerBottom" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#BFDBFE" stop-opacity="0.5"/>
+      <stop offset="100%" stop-color="#818CF8" stop-opacity="0.3"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="4" result="coloredBlur"/>
+      <feMerge>
+        <feMergeNode in="coloredBlur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Outer cube faces -->
+  <!-- Top face -->
+  <polygon points="250,60 420,160 250,260 80,160" fill="url(#topFace)" filter="url(#glow)"/>
+  <!-- Left face -->
+  <polygon points="80,160 250,260 250,440 80,340" fill="url(#leftFace)"/>
+  <!-- Right face -->
+  <polygon points="250,260 420,160 420,340 250,440" fill="url(#rightFace)"/>
+
+  <!-- Inner dividing lines (3-panel cube face) -->
+  <!-- Center point -->
+  <!-- Top face inner panels -->
+  <polygon points="250,60 420,160 250,260" fill="url(#innerRight)" opacity="0.5"/>
+  <polygon points="250,60 80,160 250,260" fill="url(#innerLeft)" opacity="0.5"/>
+
+  <!-- Left face inner panels -->
+  <polygon points="80,160 250,260 250,440 80,340" fill="url(#innerBottom)" opacity="0.3"/>
+
+  <!-- Highlight lines -->
+  <line x1="250" y1="60" x2="250" y2="260" stroke="#BFDBFE" stroke-width="1.5" stroke-opacity="0.8"/>
+  <line x1="80" y1="160" x2="250" y2="260" stroke="#BFDBFE" stroke-width="1.5" stroke-opacity="0.8"/>
+  <line x1="420" y1="160" x2="250" y2="260" stroke="#BFDBFE" stroke-width="1.5" stroke-opacity="0.8"/>
+  <line x1="250" y1="260" x2="250" y2="440" stroke="#93C5FD" stroke-width="1.5" stroke-opacity="0.6"/>
+
+  <!-- Outer edges -->
+  <polyline points="250,60 420,160 420,340 250,440 80,340 80,160 250,60" stroke="#60A5FA" stroke-width="2" fill="none"/>
+  <line x1="250" y1="440" x2="250" y2="260" stroke="#60A5FA" stroke-width="1" stroke-opacity="0.5"/>
+
+  <!-- Specular highlight on top-left of top face -->
+  <polygon points="250,60 165,110 250,160 335,110" fill="white" opacity="0.15"/>
+</svg>
