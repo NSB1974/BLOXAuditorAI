@@ -1,54 +1,47 @@
 import React, { useRef } from 'react';
-import styles from '../styles/Home.module.css'
 import Image from 'next/image';
 
 function AuditButton() {
   const chatBoxBodyRef = useRef(null);
   const inputFieldRef = useRef(null);
   const submitBtnRef = useRef(null);
-  const clearBtnRef = useRef(null);
 
   const clearInputField = () => {
     inputFieldRef.current.value = '';
-
-    // Clear the audit report
-    const previousResponse = chatBoxBodyRef.current.querySelector('.response');
-    if (previousResponse) {
-      previousResponse.remove();
-    }
+    chatBoxBodyRef.current.innerHTML = '';
   };
 
   function clearChatContainer() {
-    chatBoxBodyRef.current.innerHTML = "";
+    chatBoxBodyRef.current.innerHTML = '';
   }
 
   const sendMessage = () => {
     const chatBoxBody = chatBoxBodyRef.current;
     const inputField = inputFieldRef.current;
     const submitBtn = submitBtnRef.current;
-    const clearBtn = clearBtnRef.current;
 
-    const message = inputField.value;
+    const message = inputField.value.trim();
 
-    // Remove the previous error messages
+    // Remove previous error messages
     const previousError = chatBoxBody.querySelector('.error');
     if (previousError) {
       previousError.remove();
     }
 
-    if (!message || message.length < 23) {
+    if (!message || !/^0x[a-fA-F0-9]{40}$/.test(message)) {
       const errorMessage = document.createElement('div');
       errorMessage.classList.add('error');
-      errorMessage.innerHTML = '<p>Please enter a valid Solidity code.</p>';
+      errorMessage.style.color = '#F87171';
+      errorMessage.innerHTML = '<p>Please enter a valid Ethereum contract address (e.g., 0x followed by 40 hex characters).</p>';
       chatBoxBody.appendChild(errorMessage);
-      scrollToBottom();
+      chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
       return;
     }
 
-    submitBtn.innerHTML = 'Auditing...';
+    submitBtn.innerHTML = 'Auditing…';
     submitBtn.disabled = true;
 
-    // Remove the previous response element
+    // Remove previous response
     const previousResponse = chatBoxBody.querySelector('.response');
     if (previousResponse) {
       previousResponse.remove();
@@ -57,78 +50,77 @@ function AuditButton() {
     fetch('https://api.0x0.ai/message', {
       method: 'POST',
       headers: {
-        accept: 'application.json',
+        accept: 'application/json',
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({ message })
     })
-      .then((response) => {
-        return response.json();
-      })
+      .then((response) => response.json())
       .then((data) => {
         submitBtn.innerHTML = 'Audit';
         submitBtn.disabled = false;
         chatBoxBody.classList.add('information');
-        chatBoxBody.innerHTML = `<h3>Audited Report</h3><br><p>${data.message}</p>`;
-        scrollToBottom();
+        chatBoxBody.innerHTML = `<h3 style="color:#60A5FA;font-weight:700;font-size:1.1rem;margin-bottom:0.75rem;">Audit Report</h3><p style="line-height:1.7;">${data.message}</p>`;
+        chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
+      })
+      .catch((err) => {
+        console.error('Audit request failed:', err);
+        submitBtn.innerHTML = 'Audit';
+        submitBtn.disabled = false;
+        chatBoxBody.innerHTML = `<p style="color:#F87171;">An error occurred while fetching the audit. Please try again.</p>`;
       });
   };
 
-  const scrollToBottom = () => {
-    const chatBoxBody = chatBoxBodyRef.current;
-    chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
-  };
-
-
-
   return (
     <>
-      <div id="audit" className=' my-10 mt-28   text-white mx-auto 
-    max-w-screen-md flex flex-col justify-center items-center' >
+      <div id="audit" className="my-10 mt-28 text-white mx-auto max-w-screen-md flex flex-col justify-center items-center px-4">
 
-        <div className="text-center gap-y-10  items-center justify-center flex flex-col  mt-5 ">
-          {/* <div className="flex justify-center h-16 w-64 sm:w-auto sm:h-24 lg:h-32 items-center">
-            <img className="animate-pulse" src="/cg.png" alt="Your image description" />
-          </div> */}
-          <div className="flex justify-center h-16 w-64 sm:w-auto sm:h-24 lg:h-32 items-center">
+        {/* Hero section */}
+        <div className="text-center gap-y-6 items-center justify-center flex flex-col mt-5">
+          <div className="relative w-28 h-28 sm:w-40 sm:h-40 drop-shadow-[0_0_30px_rgba(96,165,250,0.6)]">
             <Image
-              src="/cg.png"
-              alt="Hero image"
-              width={64}
-              height={32}
-              layout="responsive"
+              src="/bloxology-logo.svg"
+              alt="Bloxology"
+              fill
+              style={{ objectFit: 'contain' }}
               className="animate-pulse"
             />
           </div>
-          <p className="text-xl w-64 sm:w-auto justify-center text-[#52f700] text-blend-overlay ">A Solidity Smart Contract Auditor
-            powered by AI that analyzes and audits the code of smart contracts, detects errors and
-            vulnerabilities, and generates through reports for safe and error-free smart contracts. </p>
+
+          <h1
+            className="text-3xl sm:text-5xl font-extrabold tracking-widest text-transparent bg-clip-text"
+            style={{ backgroundImage: 'linear-gradient(90deg, #60A5FA, #818CF8, #60A5FA)' }}
+          >
+            BLOXOLOGY
+          </h1>
+
+          <p className="text-base sm:text-lg w-full max-w-lg text-blue-200 text-center leading-relaxed">
+            AI-powered smart contract auditor. Paste a contract address below to detect
+            vulnerabilities, security flaws, and generate a comprehensive audit report.
+          </p>
         </div>
 
-        {/* ---------------Input------------------------*/}
-        <div className="w-66 mt-14 sm:w-96 h-24 sm:h-32 
-      bg-opacity-20 border-2 border-green-400
-       backdrop-filter backdrop-blur-lg rounded-xl p-4  text-black">
+        {/* Input */}
+        <div className="w-full max-w-lg mt-12 bg-blue-950 bg-opacity-40 border border-blue-500
+          backdrop-blur-lg rounded-2xl p-4">
           <input
             type="text"
             id="question-input"
             ref={inputFieldRef}
-            className="w-full h-full  sm:text-lg text-center text-green-400
-           border-[1px] border-green-400 rounded-lg bg-transparent focus:outline-none"
-            placeholder="Enter your Solidity code here..."
-
+            className="w-full h-12 sm:text-base text-center text-blue-300
+              border border-blue-500 rounded-xl bg-transparent focus:outline-none
+              focus:border-indigo-400 placeholder-blue-600 transition"
+            placeholder="Paste contract address (0x…)"
           />
         </div>
 
-        {/* ------------buttons------------------------------------*/}
-
-        <div className="my-11 flex flex-row gap-8 sm:flex-row justify-center 
-       items-center space-x-0 sm:space-x-4">
+        {/* Buttons */}
+        <div className="my-10 flex flex-row gap-6 justify-center items-center">
           <button
             id="submit-button"
-            className="btn-main w-20 h-10 sm:w-28 text-center items-center 
-          font-bold  bg-opacity-20 border-x-2 border-green-400 backdrop-filter 
-          backdrop-blur-lg text-[#48f600] rounded-xl   "
+            className="w-24 h-11 sm:w-32 font-bold rounded-xl border border-blue-400
+              text-blue-300 bg-blue-900 bg-opacity-40 backdrop-blur-lg
+              hover:bg-blue-700 hover:text-white transition disabled:opacity-50"
             onClick={sendMessage}
             ref={submitBtnRef}
           >
@@ -137,48 +129,42 @@ function AuditButton() {
 
           <button
             id="clear-button"
-            className="btn-secondary text-center items-center 
-          h-10 w-20 sm:w-28  font-bold bg-opacity-40 bg-gradient-to-t  backdrop-filter
-           backdrop-blur-lg text-[#48f600] rounded-xl border-x-2 border-green-400 "
+            className="w-24 h-11 sm:w-32 font-bold rounded-xl border border-indigo-400
+              text-indigo-300 bg-indigo-900 bg-opacity-40 backdrop-blur-lg
+              hover:bg-indigo-700 hover:text-white transition"
             onClick={clearInputField}
-            ref={clearBtnRef}
           >
             Clear
           </button>
-
         </div>
-        {/* -----------------Reply box--------------------- */}
+
+        {/* Report box */}
         <div
           id="chat-container"
           ref={chatBoxBodyRef}
-          className="my-6 border-2 h-auto w-78 sm:w-[900px] 
-        bg-opacity-60 bg-black border-green-400 backdrop-filter
-         backdrop-blur-lg rounded-md p-7  text-[#48f600] "
+          className="my-4 border border-blue-700 h-auto w-full max-w-3xl
+            bg-blue-950 bg-opacity-60 backdrop-blur-lg rounded-2xl p-6 text-blue-100
+            min-h-[3rem] leading-relaxed"
         ></div>
 
         <button
           id="clear-chat-button"
-          className="btn-secondary w-36 h-10 sm:w-38 my-6 items-center  
-        bg-opacity-60 bg-[#062426]   backdrop-filter 
-        backdrop-blur-lg text-[#48f600]  border-x-2 border-green-400 rounded-xl font-semibold"
+          className="w-40 h-10 my-4 font-semibold rounded-xl border border-indigo-500
+            text-indigo-300 bg-indigo-950 bg-opacity-60 backdrop-blur-lg
+            hover:bg-indigo-700 hover:text-white transition"
           onClick={clearChatContainer}
-        > Clear Report
+        >
+          Clear Report
         </button>
 
+        <div className="p-10" />
 
-        <div className='p-12'></div>
-        {/* -----------footer-------------------- */}
-        <footer className="  ">
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8"> </div>
-          <p className="text-center font-black text-[#48f600]">
-            © 2023 ContractGuardianAi, Inc.All rights reserved.Built by ChainSentry.
+        <footer>
+          <p className="text-center font-semibold text-blue-400 text-sm pb-6">
+            © {new Date().getFullYear()} Bloxology. All rights reserved.
           </p>
-
         </footer>
-
-
       </div>
-
     </>
   );
 }
