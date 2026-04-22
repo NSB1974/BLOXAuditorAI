@@ -48,23 +48,27 @@ export default async function handler(req, res) {
   if (!address) {
     return res.status(400).json({ error: 'Missing contract address in request body' });
   }
+  const message = req.body && req.body.message;
+  const networkRaw = req.body && req.body.network;
+  const VALID_NETWORKS = ['ethereum', 'base', 'polygon', 'kava'];
+  const network = VALID_NETWORKS.includes(networkRaw) ? networkRaw : null;
 
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return res.status(400).json({ error: 'Invalid Ethereum contract address' });
   }
 
-  // Step 1: Fetch verified source code from Etherscan
-  let contractData;
-  try {
-    contractData = await getContractSource(address);
-  } catch (e) {
-    console.error('Etherscan fetch failed:', e);
-    return res.status(502).json({ error: e.message || 'Failed to fetch contract source from Etherscan' });
-  }
+  const auditMessage = network
+    ? `Audit the following ${network.charAt(0).toUpperCase() + network.slice(1)} smart contract: ${message}`
+    : message;
 
-  if (!contractData) {
-    return res.status(404).json({
-      error: 'Contract source code not found. The contract at this address may not be verified on Etherscan.',
+  try {
+    const upstream = await fetch('https://api.0x0.ai/message', {
+      method: 'POST',
+      headers: {
+        accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ message: auditMessage }),
     });
   }
 

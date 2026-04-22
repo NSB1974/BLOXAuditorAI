@@ -1,10 +1,19 @@
-import React, { useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import Image from 'next/image';
+
+const NETWORKS = [
+  { id: 'ethereum', label: 'Ethereum', color: '#627EEA', bg: 'rgba(98,126,234,0.15)', border: '#627EEA' },
+  { id: 'base',     label: 'Base',     color: '#0052FF', bg: 'rgba(0,82,255,0.15)',   border: '#0052FF' },
+  { id: 'polygon',  label: 'Polygon',  color: '#8247E5', bg: 'rgba(130,71,229,0.15)', border: '#8247E5' },
+  { id: 'kava',     label: 'KAVA',     color: '#FF564F', bg: 'rgba(255,86,79,0.15)',  border: '#FF564F' },
+];
 
 function AuditButton() {
   const chatBoxBodyRef = useRef(null);
   const inputFieldRef = useRef(null);
   const submitBtnRef = useRef(null);
+  const [selectedNetwork, setSelectedNetwork] = useState(NETWORKS[0]);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
 
   const clearInputField = () => {
     inputFieldRef.current.value = '';
@@ -31,7 +40,7 @@ function AuditButton() {
       const errorMessage = document.createElement('div');
       errorMessage.classList.add('error');
       errorMessage.style.color = '#F87171';
-      errorMessage.innerHTML = '<p>Please enter a valid Ethereum contract address (e.g., 0x followed by 40 hex characters).</p>';
+      errorMessage.innerHTML = '<p>Please enter a valid contract address for the selected network (0x followed by 40 hex characters).</p>';
       chatBoxBody.appendChild(errorMessage);
       chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
       return;
@@ -53,7 +62,7 @@ function AuditButton() {
           accept: 'application/json',
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ message })
+        body: JSON.stringify({ message, network: selectedNetwork.id })
       });
 
       if (!response.ok) {
@@ -154,16 +163,72 @@ function AuditButton() {
           </p>
         </div>
 
+        {/* Network selector */}
+        <div className="w-full max-w-lg mt-12 relative">
+          <button
+            type="button"
+            onClick={() => setDropdownOpen(prev => !prev)}
+            style={{
+              border: `1.5px solid ${selectedNetwork.border}`,
+              background: selectedNetwork.bg,
+              color: selectedNetwork.color,
+            }}
+            className="w-full h-12 rounded-xl backdrop-blur-lg flex items-center justify-between
+              px-4 font-semibold text-sm sm:text-base transition focus:outline-none"
+          >
+            <span className="flex items-center gap-2">
+              <span
+                style={{ background: selectedNetwork.color }}
+                className="inline-block w-3 h-3 rounded-full flex-shrink-0"
+              />
+              {selectedNetwork.label}
+            </span>
+            <svg
+              className={`w-4 h-4 transition-transform ${dropdownOpen ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          {dropdownOpen && (
+            <ul
+              className="absolute z-20 mt-1 w-full rounded-xl overflow-hidden shadow-xl"
+              style={{ background: '#0f172a', border: '1px solid #1e3a5f' }}
+            >
+              {NETWORKS.map(net => (
+                <li key={net.id}>
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedNetwork(net); setDropdownOpen(false); }}
+                    style={{ color: net.color }}
+                    className="w-full flex items-center gap-3 px-4 py-3 text-sm sm:text-base
+                      font-semibold hover:bg-white/5 transition text-left"
+                  >
+                    <span
+                      style={{ background: net.color }}
+                      className="inline-block w-3 h-3 rounded-full flex-shrink-0"
+                    />
+                    {net.label}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
         {/* Input */}
-        <div className="w-full max-w-lg mt-12 bg-blue-950 bg-opacity-40 border border-blue-500
-          backdrop-blur-lg rounded-2xl p-4">
+        <div
+          className="w-full max-w-lg mt-3 bg-blue-950 bg-opacity-40 backdrop-blur-lg rounded-2xl p-4"
+          style={{ border: `1.5px solid ${selectedNetwork.border}` }}
+        >
           <input
             type="text"
             id="question-input"
             ref={inputFieldRef}
-            className="w-full h-12 sm:text-base text-center text-blue-300
-              border border-blue-500 rounded-xl bg-transparent focus:outline-none
-              focus:border-indigo-400 placeholder-blue-600 transition"
+            className="w-full h-12 sm:text-base text-center bg-transparent focus:outline-none
+              placeholder-blue-600 transition"
+            style={{ color: selectedNetwork.color, caretColor: selectedNetwork.color }}
             placeholder="Paste contract address (0x…)"
           />
         </div>
@@ -172,9 +237,9 @@ function AuditButton() {
         <div className="my-10 flex flex-row gap-6 justify-center items-center">
           <button
             id="submit-button"
-            className="w-24 h-11 sm:w-32 font-bold rounded-xl border border-blue-400
-              text-blue-300 bg-blue-900 bg-opacity-40 backdrop-blur-lg
-              hover:bg-blue-700 hover:text-white transition disabled:opacity-50"
+            style={{ borderColor: selectedNetwork.border, color: selectedNetwork.color, background: selectedNetwork.bg }}
+            className="w-24 h-11 sm:w-32 font-bold rounded-xl backdrop-blur-lg
+              hover:brightness-125 transition disabled:opacity-50"
             onClick={sendMessage}
             ref={submitBtnRef}
           >
