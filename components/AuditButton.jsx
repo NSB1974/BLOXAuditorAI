@@ -57,11 +57,29 @@ function AuditButton() {
       });
 
       if (!response.ok) {
-        let errorText = `Request failed (HTTP ${response.status}).`;
+        // Try to read the structured error message from the API first
+        let apiError = null;
         try {
           const errData = await response.json();
-          if (errData && errData.error) errorText = errData.error;
-        } catch { /* ignore */ }
+          if (errData && errData.error) apiError = errData.error;
+        } catch { /* ignore parse errors */ }
+
+        // Provide status-specific fallback messages where the API message is absent
+        let errorText;
+        if (apiError) {
+          errorText = apiError;
+        } else if (response.status === 502) {
+          errorText = 'The audit service is temporarily unavailable (502). Please try again in a moment.';
+        } else if (response.status === 503) {
+          errorText = 'The server is currently unavailable (503). Please try again shortly.';
+        } else if (response.status === 504) {
+          errorText = 'The audit request timed out (504). The contract may be too large — please try again.';
+        } else if (response.status >= 500) {
+          errorText = `An internal server error occurred (${response.status}). Please try again.`;
+        } else {
+          errorText = `Request failed (HTTP ${response.status}).`;
+        }
+
         submitBtn.textContent = 'Audit';
         submitBtn.disabled = false;
         const errEl = document.createElement('p');
@@ -93,9 +111,15 @@ function AuditButton() {
       console.error('Audit request failed:', e);
       submitBtn.textContent = 'Audit';
       submitBtn.disabled = false;
+
+      // TypeError means fetch itself failed — server was never reached (network down, DNS failure, etc.)
+      const errorText = e instanceof TypeError
+        ? 'Could not reach the server. Please check your internet connection and try again.'
+        : 'An unexpected error occurred while fetching the audit. Please try again.';
+
       const errEl = document.createElement('p');
       errEl.style.color = '#F87171';
-      errEl.textContent = 'An error occurred while fetching the audit. Please check your connection.';
+      errEl.textContent = errorText;
       chatBoxBody.innerHTML = '';
       chatBoxBody.appendChild(errEl);
     }
