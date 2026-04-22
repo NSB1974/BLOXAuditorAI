@@ -48,7 +48,7 @@ function AuditButton() {
     }
 
     try {
-      const response = await fetch('https://api.0x0.ai/message', {
+      const response = await fetch('/api/audit', {
         method: 'POST',
         headers: {
           accept: 'application/json',
