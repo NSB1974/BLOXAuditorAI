@@ -5,10 +5,17 @@ export default async function handler(req, res) {
   }
 
   const message = req.body && req.body.message;
+  const networkRaw = req.body && req.body.network;
+  const VALID_NETWORKS = ['ethereum', 'base', 'polygon', 'kava'];
+  const network = VALID_NETWORKS.includes(networkRaw) ? networkRaw : null;
 
   if (!message) {
     return res.status(400).json({ error: 'Missing message in request body' });
   }
+
+  const auditMessage = network
+    ? `Audit the following ${network.charAt(0).toUpperCase() + network.slice(1)} smart contract: ${message}`
+    : message;
 
   try {
     const upstream = await fetch('https://api.0x0.ai/message', {
@@ -17,7 +24,7 @@ export default async function handler(req, res) {
         accept: 'application/json',
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message: auditMessage }),
     });
 
     let data;
