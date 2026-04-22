@@ -15,7 +15,7 @@ function AuditButton() {
     chatBoxBodyRef.current.innerHTML = '';
   }
 
-  const sendMessage = () => {
+  const sendMessage = async () => {
     const chatBoxBody = chatBoxBodyRef.current;
     const inputField = inputFieldRef.current;
     const submitBtn = submitBtnRef.current;
@@ -47,28 +47,33 @@ function AuditButton() {
       previousResponse.remove();
     }
 
-    fetch('https://api.0x0.ai/message', {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ message })
-    })
-      .then((response) => response.json())
-      .then((data) => {
-        submitBtn.innerHTML = 'Audit';
-        submitBtn.disabled = false;
-        chatBoxBody.classList.add('information');
-        chatBoxBody.innerHTML = `<h3 style="color:#60A5FA;font-weight:700;font-size:1.1rem;margin-bottom:0.75rem;">Audit Report</h3><p style="line-height:1.7;">${data.message}</p>`;
-        chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
-      })
-      .catch((err) => {
-        console.error('Audit request failed:', err);
-        submitBtn.innerHTML = 'Audit';
-        submitBtn.disabled = false;
-        chatBoxBody.innerHTML = `<p style="color:#F87171;">An error occurred while fetching the audit. Please try again.</p>`;
+    try {
+      const response = await fetch('https://api.0x0.ai/message', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ message })
       });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+      submitBtn.innerHTML = 'Audit';
+      submitBtn.disabled = false;
+      chatBoxBody.classList.add('information');
+      chatBoxBody.innerHTML = `<h3 style="color:#60A5FA;font-weight:700;font-size:1.1rem;margin-bottom:0.75rem;">Audit Report</h3><p style="line-height:1.7;">${data.message}</p>`;
+      chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
+    } catch (e) {
+      // TypeError usually means network/CORS; Error usually means explicit HTTP failure.
+      console.error('Audit request failed:', e);
+      submitBtn.innerHTML = 'Audit';
+      submitBtn.disabled = false;
+      chatBoxBody.innerHTML = '<p style="color:#F87171;">An error occurred while fetching the audit. Please check your connection or CORS settings.</p>';
+    }
   };
 
   return (
