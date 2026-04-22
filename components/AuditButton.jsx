@@ -17,7 +17,6 @@ function AuditButton() {
 
   const clearInputField = () => {
     inputFieldRef.current.value = '';
-    chatBoxBodyRef.current.innerHTML = '';
   };
 
   function clearChatContainer() {
@@ -47,7 +46,7 @@ function AuditButton() {
       return;
     }
 
-    submitBtn.innerHTML = 'Auditing…';
+    submitBtn.textContent = 'Fetching source…';
     submitBtn.disabled = true;
 
     // Remove previous response
@@ -67,21 +66,71 @@ function AuditButton() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        // Try to read the structured error message from the API first
+        let apiError = null;
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) apiError = errData.error;
+        } catch { /* ignore parse errors */ }
+
+        // Provide status-specific fallback messages where the API message is absent
+        let errorText;
+        if (apiError) {
+          errorText = apiError;
+        } else if (response.status === 502) {
+          errorText = 'The audit service is temporarily unavailable (502). Please try again in a moment.';
+        } else if (response.status === 503) {
+          errorText = 'The server is currently unavailable (503). Please try again shortly.';
+        } else if (response.status === 504) {
+          errorText = 'The audit request timed out (504). The contract may be too large — please try again.';
+        } else if (response.status >= 500) {
+          errorText = `An internal server error occurred (${response.status}). Please try again.`;
+        } else {
+          errorText = `Request failed (HTTP ${response.status}).`;
+        }
+
+        submitBtn.textContent = 'Audit';
+        submitBtn.disabled = false;
+        const errEl = document.createElement('p');
+        errEl.style.color = '#F87171';
+        errEl.textContent = errorText;
+        chatBoxBody.innerHTML = '';
+        chatBoxBody.appendChild(errEl);
+        return;
       }
 
       const data = await response.json();
-      submitBtn.innerHTML = 'Audit';
+      submitBtn.textContent = 'Audit';
       submitBtn.disabled = false;
       chatBoxBody.classList.add('information');
-      chatBoxBody.innerHTML = `<h3 style="color:#60A5FA;font-weight:700;font-size:1.1rem;margin-bottom:0.75rem;">Audit Report</h3><p style="line-height:1.7;">${data.message}</p>`;
+
+      const heading = document.createElement('h3');
+      heading.style.cssText = 'color:#60A5FA;font-weight:700;font-size:1.1rem;margin-bottom:0.75rem;';
+      heading.textContent = 'Audit Report';
+
+      const body = document.createElement('p');
+      body.style.lineHeight = '1.7';
+      body.textContent = data.message;
+
+      chatBoxBody.innerHTML = '';
+      chatBoxBody.appendChild(heading);
+      chatBoxBody.appendChild(body);
       chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
     } catch (e) {
-      // TypeError usually means network/CORS; Error usually means explicit HTTP failure.
       console.error('Audit request failed:', e);
-      submitBtn.innerHTML = 'Audit';
+      submitBtn.textContent = 'Audit';
       submitBtn.disabled = false;
-      chatBoxBody.innerHTML = '<p style="color:#F87171;">An error occurred while fetching the audit. Please check your connection or CORS settings.</p>';
+
+      // TypeError means fetch itself failed — server was never reached (network down, DNS failure, etc.)
+      const errorText = e instanceof TypeError
+        ? 'Could not reach the server. Please check your internet connection and try again.'
+        : 'An unexpected error occurred while fetching the audit. Please try again.';
+
+      const errEl = document.createElement('p');
+      errEl.style.color = '#F87171';
+      errEl.textContent = errorText;
+      chatBoxBody.innerHTML = '';
+      chatBoxBody.appendChild(errEl);
     }
   };
 
