@@ -1,0 +1,4 @@
+# Example Nginx config check
+location / {
+    proxy_pass http://localhost:3000; # Ensure this port matches your app
+}
