@@ -8,7 +8,6 @@ function AuditButton() {
 
   const clearInputField = () => {
     inputFieldRef.current.value = '';
-    chatBoxBodyRef.current.innerHTML = '';
   };
 
   function clearChatContainer() {
@@ -38,7 +37,7 @@ function AuditButton() {
       return;
     }
 
-    submitBtn.innerHTML = 'Auditing…';
+    submitBtn.textContent = 'Fetching source…';
     submitBtn.disabled = true;
 
     // Remove previous response
@@ -58,21 +57,47 @@ function AuditButton() {
       });
 
       if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
+        let errorText = `Request failed (HTTP ${response.status}).`;
+        try {
+          const errData = await response.json();
+          if (errData && errData.error) errorText = errData.error;
+        } catch { /* ignore */ }
+        submitBtn.textContent = 'Audit';
+        submitBtn.disabled = false;
+        const errEl = document.createElement('p');
+        errEl.style.color = '#F87171';
+        errEl.textContent = errorText;
+        chatBoxBody.innerHTML = '';
+        chatBoxBody.appendChild(errEl);
+        return;
       }
 
       const data = await response.json();
-      submitBtn.innerHTML = 'Audit';
+      submitBtn.textContent = 'Audit';
       submitBtn.disabled = false;
       chatBoxBody.classList.add('information');
-      chatBoxBody.innerHTML = `<h3 style="color:#60A5FA;font-weight:700;font-size:1.1rem;margin-bottom:0.75rem;">Audit Report</h3><p style="line-height:1.7;">${data.message}</p>`;
+
+      const heading = document.createElement('h3');
+      heading.style.cssText = 'color:#60A5FA;font-weight:700;font-size:1.1rem;margin-bottom:0.75rem;';
+      heading.textContent = 'Audit Report';
+
+      const body = document.createElement('p');
+      body.style.lineHeight = '1.7';
+      body.textContent = data.message;
+
+      chatBoxBody.innerHTML = '';
+      chatBoxBody.appendChild(heading);
+      chatBoxBody.appendChild(body);
       chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
     } catch (e) {
-      // TypeError usually means network/CORS; Error usually means explicit HTTP failure.
       console.error('Audit request failed:', e);
-      submitBtn.innerHTML = 'Audit';
+      submitBtn.textContent = 'Audit';
       submitBtn.disabled = false;
-      chatBoxBody.innerHTML = '<p style="color:#F87171;">An error occurred while fetching the audit. Please check your connection or CORS settings.</p>';
+      const errEl = document.createElement('p');
+      errEl.style.color = '#F87171';
+      errEl.textContent = 'An error occurred while fetching the audit. Please check your connection.';
+      chatBoxBody.innerHTML = '';
+      chatBoxBody.appendChild(errEl);
     }
   };
 
