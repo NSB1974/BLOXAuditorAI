@@ -1,17 +1,10 @@
-      /\__
-     /`    \
-    === 0  0 ===    Contract Guardian AI by Chain-sentry
-      \  --/
-     /      \
-    /        \
-                              
-# Contract-Guardian AI
+BloxAuditorAI
 
 Contract Guardian AI is a Solidity Smart Contract Auditor powered by AI using 0X0-Api that analyzes and audits the code of smart contracts, detects errors and vulnerabilities, and generates through reports for safe and error-free smart contracts.
 
 # Technologies Used:
 
-0XO Api
+0x Api
 
 Next.js server-side API routes: The perfect solution for interacting with the  API, delivering lightning-fast results.
 
