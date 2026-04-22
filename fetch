@@ -1,0 +1,14 @@
+try {
+    const response = await fetch('/api/audit'); // Example request
+    if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
+    const data = await response.json();
+} catch (e) {
+    console.error("Audit request failed:", e);
+    o.innerHTML = "Audit";
+    o.disabled = false;
+    // Update the message to reflect that it might be a server issue
+    t.innerHTML = `<p style="color:#F87171;">
+        ${e.message.includes('502') ? 'Server is temporarily unavailable (Bad Gateway).' : 'An error occurred while fetching the audit.'} 
+        Please try again later.
+    </p>`;
+}
