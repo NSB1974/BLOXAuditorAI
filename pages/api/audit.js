@@ -57,31 +57,23 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: 'Invalid Ethereum contract address' });
   }
 
-  const auditMessage = network
-    ? `Audit the following ${network.charAt(0).toUpperCase() + network.slice(1)} smart contract: ${message}`
-    : message;
-
   try {
-    const upstream = await fetch('https://api.0x0.ai/message', {
-      method: 'POST',
-      headers: {
-        accept: 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ message: auditMessage }),
-    });
-  }
+    // Step 1: Fetch contract source code from Etherscan
+    const contractData = await getContractSource(address);
 
-  const { sourceCode, contractName } = contractData;
+    if (!contractData) {
+      return res.status(404).json({ error: 'Contract source code not found on Etherscan. The contract may be unverified or not exist.' });
+    }
 
-  // Sanitize Etherscan metadata to prevent prompt injection
-  const safeName = contractName.replace(/[^\w\s.-]/g, '').slice(0, 100);
-  const safeAddress = address; // already validated as /^0x[a-fA-F0-9]{40}$/
+    const { sourceCode, contractName } = contractData;
 
-  // Step 2: Send source code to 0x0.ai for audit
-  const prompt = `Perform a comprehensive smart contract security audit for the following Ethereum smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
+    // Sanitize Etherscan metadata to prevent prompt injection
+    const safeName = contractName.replace(/[^\w\s.-]/g, '').slice(0, 100);
+    const safeAddress = address; // already validated as /^0x[a-fA-F0-9]{40}$/
 
-  try {
+    // Step 2: Send source code to 0x0.ai for audit
+    const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
+
     const upstream = await fetchWithTimeout(
       'https://api.0x0.ai/message',
       {
@@ -104,10 +96,13 @@ export default async function handler(req, res) {
 
     return res.status(upstream.status).json(data);
   } catch (e) {
-    console.error('Upstream audit request failed:', e);
+    console.error('Audit request failed:', e);
     if (e.name === 'AbortError') {
       return res.status(504).json({ error: 'Audit service timed out. Please try again.' });
     }
-    return res.status(502).json({ error: 'Failed to reach audit service' });
+    if (e.message.includes('ETHERSCAN_API_KEY')) {
+      return res.status(500).json({ error: 'Server configuration error: Missing Etherscan API key' });
+    }
+    return res.status(502).json({ error: e.message || 'Failed to process audit request' });
   }
 }
