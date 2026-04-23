@@ -1,4 +1,25 @@
-const ETHERSCAN_API_KEY = process.env.ETHERSCAN_API_KEY;
+const EXPLORER_CONFIG = {
+  ethereum: {
+    name: 'Etherscan',
+    apiBase: 'https://api.etherscan.io/api',
+    apiKeyEnv: 'ETHERSCAN_API_KEY',
+  },
+  base: {
+    name: 'Basescan',
+    apiBase: 'https://api.basescan.org/api',
+    apiKeyEnv: 'BASESCAN_API_KEY',
+  },
+  polygon: {
+    name: 'Polygonscan',
+    apiBase: 'https://api.polygonscan.com/api',
+    apiKeyEnv: 'POLYGONSCAN_API_KEY',
+  },
+  kava: {
+    name: 'Kavascan',
+    apiBase: 'https://api.kavascan.com/api',
+    apiKeyEnv: 'KAVASCAN_API_KEY',
+  },
+};
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   const controller = new AbortController();
@@ -10,16 +31,19 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   }
 }
 
-async function getContractSource(address) {
-  if (!ETHERSCAN_API_KEY) {
-    throw new Error('ETHERSCAN_API_KEY environment variable is not set');
+async function getContractSource(address, network = 'ethereum') {
+  const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
+  const apiKey = process.env[explorer.apiKeyEnv];
+
+  if (!apiKey) {
+    throw new Error(`Missing required API key: ${explorer.apiKeyEnv}`);
   }
 
-  const url = `https://api.etherscan.io/api?module=contract&action=getsourcecode&address=${encodeURIComponent(address)}&apikey=${ETHERSCAN_API_KEY}`;
+  const url = `${explorer.apiBase}?module=contract&action=getsourcecode&address=${encodeURIComponent(address)}&apikey=${apiKey}`;
   const response = await fetchWithTimeout(url, {}, 10000);
 
   if (!response.ok) {
-    throw new Error(`Etherscan returned HTTP ${response.status}`);
+    throw new Error(`${explorer.name} returned HTTP ${response.status}`);
   }
 
   const json = await response.json();
@@ -51,7 +75,7 @@ export default async function handler(req, res) {
   const message = req.body && req.body.message;
   const networkRaw = req.body && req.body.network;
   const VALID_NETWORKS = ['ethereum', 'base', 'polygon', 'kava'];
-  const network = VALID_NETWORKS.includes(networkRaw) ? networkRaw : null;
+  const network = VALID_NETWORKS.includes(networkRaw) ? networkRaw : 'ethereum';
 
   if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return res.status(400).json({ error: 'Invalid Ethereum contract address' });
@@ -59,10 +83,11 @@ export default async function handler(req, res) {
 
   try {
     // Step 1: Fetch contract source code from Etherscan
-    const contractData = await getContractSource(address);
+    const contractData = await getContractSource(address, network);
 
     if (!contractData) {
-      return res.status(404).json({ error: 'Contract source code not found on Etherscan. The contract may be unverified or not exist.' });
+      const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
+      return res.status(404).json({ error: `Contract source code not found on ${explorer.name}. The contract may be unverified or not exist.` });
     }
 
     const { sourceCode, contractName } = contractData;
@@ -100,8 +125,8 @@ export default async function handler(req, res) {
     if (e.name === 'AbortError') {
       return res.status(504).json({ error: 'Audit service timed out. Please try again.' });
     }
-    if (e.message.includes('ETHERSCAN_API_KEY')) {
-      return res.status(500).json({ error: 'Server configuration error: Missing Etherscan API key' });
+    if (typeof e.message === 'string' && e.message.includes('Missing required API key:')) {
+      return res.status(500).json({ error: `Server configuration error: ${e.message}` });
     }
     return res.status(502).json({ error: e.message || 'Failed to process audit request' });
   }

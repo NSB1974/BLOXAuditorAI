@@ -6,13 +6,20 @@ export default function handler(req, res) {
 
   const checks = {
     etherscanApiKey: !!process.env.ETHERSCAN_API_KEY,
+    basescanApiKey: !!process.env.BASESCAN_API_KEY,
+    polygonscanApiKey: !!process.env.POLYGONSCAN_API_KEY,
+    kavascanApiKey: !!process.env.KAVASCAN_API_KEY,
   };
 
-  const healthy = Object.values(checks).every(Boolean);
+  const configuredNetworks = Object.entries(checks)
+    .filter(([, configured]) => configured)
+    .map(([key]) => key);
+  const healthy = configuredNetworks.length > 0;
 
   return res.status(healthy ? 200 : 503).json({
     status: healthy ? 'ok' : 'degraded',
     uptime: process.uptime(),
     checks,
+    configuredNetworks,
   });
 }
