@@ -1,0 +1,4 @@
+# Example for a Node.js app using PM2
+pm2 restart all
+# Example for a systemd service
+sudo systemctl restart my-backend-app
