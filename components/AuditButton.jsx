@@ -77,6 +77,8 @@ function AuditButton() {
         let errorText;
         if (apiError) {
           errorText = apiError;
+        } else if (response.status === 429) {
+          errorText = 'The block explorer API rate limit was reached. Please wait a moment and try again.';
         } else if (response.status === 502) {
           errorText = 'The audit service is temporarily unavailable (502). Please try again in a moment.';
         } else if (response.status === 503) {

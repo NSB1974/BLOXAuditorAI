@@ -48,7 +48,25 @@ async function getContractSource(address, network = 'ethereum') {
 
   const json = await response.json();
 
-  if (json.status !== '1' || !Array.isArray(json.result) || json.result.length === 0) {
+  if (json.status !== '1') {
+    // Distinguish API-level errors (rate limit, bad key, …) from "contract not found"
+    if (typeof json.result === 'string') {
+      const resultMsg = json.result.toLowerCase();
+      if (resultMsg.includes('rate limit')) {
+        const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
+        err.code = 'RATE_LIMITED';
+        throw err;
+      }
+      if (resultMsg.includes('invalid api key') || resultMsg.includes('invalid apikey')) {
+        const err = new Error(`${explorer.name} API key is invalid or misconfigured.`);
+        err.code = 'INVALID_API_KEY';
+        throw err;
+      }
+    }
+    return null;
+  }
+
+  if (!Array.isArray(json.result) || json.result.length === 0) {
     return null;
   }
 
@@ -125,8 +143,11 @@ export default async function handler(req, res) {
     if (e.name === 'AbortError') {
       return res.status(504).json({ error: 'Audit service timed out. Please try again.' });
     }
-    if (typeof e.message === 'string' && e.message.includes('Missing required API key:')) {
-      return res.status(500).json({ error: `Server configuration error: ${e.message}` });
+    if (e.code === 'RATE_LIMITED') {
+      return res.status(429).json({ error: e.message });
+    }
+    if (e.code === 'INVALID_API_KEY' || (typeof e.message === 'string' && e.message.includes('Missing required API key:'))) {
+      return res.status(500).json({ error: 'Server configuration error: the block explorer API key is missing or invalid.' });
     }
     return res.status(502).json({ error: e.message || 'Failed to process audit request' });
   }
