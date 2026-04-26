@@ -8,8 +8,6 @@ const NETWORKS = [
   { id: 'kava',     label: 'KAVA',     color: '#FF564F', bg: 'rgba(255,86,79,0.15)',  border: '#FF564F' },
 ];
 
-const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
-
 function AuditButton() {
   const chatBoxBodyRef = useRef(null);
   const inputFieldRef = useRef(null);
@@ -38,7 +36,7 @@ function AuditButton() {
       previousError.remove();
     }
 
-    if (!message || !ETH_ADDRESS_RE.test(message)) {
+    if (!message || !/^0x[a-fA-F0-9]{40}$/.test(message)) {
       const errorMessage = document.createElement('div');
       errorMessage.classList.add('error');
       errorMessage.style.color = '#F87171';

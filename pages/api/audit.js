@@ -1,6 +1,3 @@
-const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
-const MAX_PROXY_DEPTH = 1;
-
 const EXPLORER_CONFIG = {
   ethereum: {
     name: 'Etherscan',
@@ -34,7 +31,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   }
 }
 
-async function getContractSource(address, network = 'ethereum', depth = 0) {
+async function getContractSource(address, network = 'ethereum') {
   const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
   const apiKey = process.env[explorer.apiKeyEnv];
 
@@ -42,7 +39,7 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
     throw new Error(`Missing required API key: ${explorer.apiKeyEnv}`);
   }
 
-  const url = `${explorer.apiBase}?module=contract&action=getsourcecode&address=${encodeURIComponent(address)}&apikey=${encodeURIComponent(apiKey)}`;
+  const url = `${explorer.apiBase}?module=contract&action=getsourcecode&address=${encodeURIComponent(address)}&apikey=${apiKey}`;
   const response = await fetchWithTimeout(url, {}, 10000);
 
   if (!response.ok) {
@@ -73,20 +70,9 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
     return null;
   }
 
-  const { SourceCode, ContractName, Implementation } = json.result[0];
+  const { SourceCode, ContractName } = json.result[0];
 
-  // If this is a proxy contract with a known implementation address, resolve to the
-  // implementation's source code (one level deep) so the audit covers the actual logic
-  // rather than minimal proxy boilerplate. This also fixes the "not found" error for
-  // EIP-1167 clone proxies whose own SourceCode field is empty.
-  if (depth < MAX_PROXY_DEPTH && Implementation && ETH_ADDRESS_RE.test(Implementation)) {
-    const implData = await getContractSource(Implementation, network, depth + 1);
-    if (implData) {
-      return implData;
-    }
-  }
-
-  if (!SourceCode || !SourceCode.trim()) {
+  if (!SourceCode) {
     return null;
   }
 
@@ -104,11 +90,12 @@ export default async function handler(req, res) {
   if (!address) {
     return res.status(400).json({ error: 'Missing contract address in request body' });
   }
+  const message = req.body && req.body.message;
   const networkRaw = req.body && req.body.network;
   const VALID_NETWORKS = ['ethereum', 'base', 'polygon', 'kava'];
   const network = VALID_NETWORKS.includes(networkRaw) ? networkRaw : 'ethereum';
 
-  if (!ETH_ADDRESS_RE.test(address)) {
+  if (!/^0x[a-fA-F0-9]{40}$/.test(address)) {
     return res.status(400).json({ error: 'Invalid Ethereum contract address' });
   }
 
