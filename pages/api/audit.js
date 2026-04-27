@@ -370,7 +370,7 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: `${e.message} Please contact support.` });
     }
     if (e.code === 'CHAIN_PLAN_RESTRICTED') {
-      return res.status(403).json({ error: `${e.message} If you are auditing Base, Etherscan may require a paid plan for chain ID 8453.` });
+      return res.status(403).json({ error: `${e.message} The selected network may require a paid or upgraded block explorer API plan for this request.` });
     }
     if (e.code === 'INVALID_API_KEY' || (typeof e.message === 'string' && e.message.includes('Missing required API key:'))) {
       return res.status(500).json({ error: 'Server configuration error: the block explorer API key is missing or invalid.' });
