@@ -4,23 +4,30 @@ const MAX_PROXY_DEPTH = 1;
 const EXPLORER_CONFIG = {
   ethereum: {
     name: 'Etherscan',
-    apiBase: 'https://api.etherscan.io/api',
-    apiKeyEnv: 'ETHERSCAN_API_KEY',
+    endpoints: [
+      { apiBase: 'https://api.etherscan.io/v2/api', apiKeyEnvs: ['ETHERSCAN_API_KEY'], chainId: '1' },
+      { apiBase: 'https://api.etherscan.io/api', apiKeyEnvs: ['ETHERSCAN_API_KEY'] },
+    ],
   },
   base: {
     name: 'Basescan',
-    apiBase: 'https://api.basescan.org/api',
-    apiKeyEnv: 'BASESCAN_API_KEY',
+    endpoints: [
+      { apiBase: 'https://api.etherscan.io/v2/api', apiKeyEnvs: ['ETHERSCAN_API_KEY'], chainId: '8453' },
+      { apiBase: 'https://api.basescan.org/api', apiKeyEnvs: ['BASESCAN_API_KEY', 'ETHERSCAN_API_KEY'] },
+    ],
   },
   polygon: {
     name: 'Polygonscan',
-    apiBase: 'https://api.polygonscan.com/api',
-    apiKeyEnv: 'POLYGONSCAN_API_KEY',
+    endpoints: [
+      { apiBase: 'https://api.etherscan.io/v2/api', apiKeyEnvs: ['ETHERSCAN_API_KEY'], chainId: '137' },
+      { apiBase: 'https://api.polygonscan.com/api', apiKeyEnvs: ['POLYGONSCAN_API_KEY', 'ETHERSCAN_API_KEY'] },
+    ],
   },
   kava: {
     name: 'Kavascan',
-    apiBase: 'https://api.kavascan.com/api',
-    apiKeyEnv: 'KAVASCAN_API_KEY',
+    endpoints: [
+      { apiBase: 'https://api.kavascan.com/api', apiKeyEnvs: ['KAVASCAN_API_KEY'] },
+    ],
   },
 };
 
@@ -34,38 +41,90 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   }
 }
 
+function buildExplorerUrl(endpoint, address, apiKey) {
+  const params = new URLSearchParams({
+    module: 'contract',
+    action: 'getsourcecode',
+    address,
+    apikey: apiKey,
+  });
+
+  if (endpoint.chainId) {
+    params.set('chainid', endpoint.chainId);
+  }
+
+  return `${endpoint.apiBase}?${params.toString()}`;
+}
+
 async function getContractSource(address, network = 'ethereum', depth = 0) {
   const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
-  const apiKey = process.env[explorer.apiKeyEnv];
+  let json = null;
+  let lastNetworkError = null;
+  const missingKeyErrors = [];
 
-  if (!apiKey) {
-    throw new Error(`Missing required API key: ${explorer.apiKeyEnv}`);
+  for (const endpoint of explorer.endpoints) {
+    const apiKeyEnv = endpoint.apiKeyEnvs.find((envName) => !!process.env[envName]);
+    const apiKey = apiKeyEnv ? process.env[apiKeyEnv] : '';
+
+    if (!apiKey) {
+      missingKeyErrors.push(...endpoint.apiKeyEnvs);
+      continue;
+    }
+
+    const url = buildExplorerUrl(endpoint, address, apiKey);
+    let response;
+    try {
+      response = await fetchWithTimeout(url, {}, 10000);
+    } catch (err) {
+      lastNetworkError = err;
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`${explorer.name} returned HTTP ${response.status}`);
+    }
+
+    json = await response.json();
+    break;
   }
 
-  const url = `${explorer.apiBase}?module=contract&action=getsourcecode&address=${encodeURIComponent(address)}&apikey=${encodeURIComponent(apiKey)}`;
-  const response = await fetchWithTimeout(url, {}, 10000);
-
-  if (!response.ok) {
-    throw new Error(`${explorer.name} returned HTTP ${response.status}`);
+  if (!json) {
+    const uniqueMissingKeys = [...new Set(missingKeyErrors)];
+    if (uniqueMissingKeys.length > 0) {
+      throw new Error(`Missing required API key: ${uniqueMissingKeys.join(' or ')}`);
+    }
+    if (lastNetworkError) {
+      throw new Error(`${explorer.name} request failed: ${lastNetworkError.message || 'Network error'}`);
+    }
+    throw new Error(`${explorer.name} request failed`);
   }
-
-  const json = await response.json();
 
   if (json.status !== '1') {
-    // Distinguish API-level errors (rate limit, bad key, …) from "contract not found"
-    if (typeof json.result === 'string') {
-      const resultMsg = json.result.toLowerCase();
-      if (resultMsg.includes('rate limit')) {
-        const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
-        err.code = 'RATE_LIMITED';
-        throw err;
-      }
-      if (resultMsg.includes('invalid api key') || resultMsg.includes('invalid apikey')) {
-        const err = new Error(`${explorer.name} API key is invalid or misconfigured.`);
-        err.code = 'INVALID_API_KEY';
-        throw err;
-      }
+    // Distinguish API-level errors (rate limit, bad key, deprecated endpoint, …) from "contract not found"
+    const rawResult = typeof json.result === 'string' ? json.result : '';
+    const rawMessage = typeof json.message === 'string' ? json.message : '';
+    const detailMsg = `${rawMessage} ${rawResult}`.toLowerCase();
+
+    if (detailMsg.includes('rate limit')) {
+      const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
+      err.code = 'RATE_LIMITED';
+      throw err;
     }
+    if (
+      detailMsg.includes('invalid api key') ||
+      detailMsg.includes('invalid apikey') ||
+      detailMsg.includes('missing or invalid api key')
+    ) {
+      const err = new Error(`${explorer.name} API key is invalid or misconfigured.`);
+      err.code = 'INVALID_API_KEY';
+      throw err;
+    }
+    if (detailMsg.includes('deprecated') || detailMsg.includes('v2')) {
+      const err = new Error(`${explorer.name} API endpoint is deprecated or misconfigured.`);
+      err.code = 'EXPLORER_ENDPOINT_DEPRECATED';
+      throw err;
+    }
+
     return null;
   }
 
@@ -99,7 +158,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method Not Allowed' });
   }
 
-  const address = req.body && req.body.message;
+  const address = req.body && typeof req.body.message === 'string' ? req.body.message.trim() : '';
 
   if (!address) {
     return res.status(400).json({ error: 'Missing contract address in request body' });
@@ -158,6 +217,9 @@ export default async function handler(req, res) {
     }
     if (e.code === 'RATE_LIMITED') {
       return res.status(429).json({ error: e.message });
+    }
+    if (e.code === 'EXPLORER_ENDPOINT_DEPRECATED') {
+      return res.status(502).json({ error: `${e.message} Please contact support.` });
     }
     if (e.code === 'INVALID_API_KEY' || (typeof e.message === 'string' && e.message.includes('Missing required API key:'))) {
       return res.status(500).json({ error: 'Server configuration error: the block explorer API key is missing or invalid.' });
