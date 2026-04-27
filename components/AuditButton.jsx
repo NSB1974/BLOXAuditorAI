@@ -11,6 +11,7 @@ const NETWORKS = [
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
 async function fetchAuditWithRetry(payload, attempts = 2) {
+  const RETRYABLE_STATUSES = new Set([502, 503, 504]);
   let lastError;
 
   for (let i = 0; i < attempts; i += 1) {
@@ -23,6 +24,10 @@ async function fetchAuditWithRetry(payload, attempts = 2) {
         },
         body: JSON.stringify(payload)
       });
+      if (RETRYABLE_STATUSES.has(response.status) && i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        continue;
+      }
       return response;
     } catch (error) {
       lastError = error;

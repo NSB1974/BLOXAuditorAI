@@ -32,6 +32,9 @@ async function checkTarget(target) {
     return {
       name: target.name,
       url: target.url,
+      // reachable is true whenever a response is received, regardless of HTTP status.
+      // ok is true only for 2xx responses.
+      reachable: true,
       ok: response.ok,
       status: response.status,
       latencyMs: Date.now() - startedAt,
@@ -40,6 +43,7 @@ async function checkTarget(target) {
     return {
       name: target.name,
       url: target.url,
+      reachable: false,
       ok: false,
       status: null,
       latencyMs: Date.now() - startedAt,
@@ -62,7 +66,7 @@ export default async function handler(req, res) {
   };
 
   const checks = await Promise.all(DIAG_TARGETS.map(checkTarget));
-  const reachableCount = checks.filter((item) => item.ok).length;
+  const reachableCount = checks.filter((item) => item.reachable).length;
 
   return res.status(200).json({
     status: reachableCount > 0 ? 'partial_or_better' : 'downstream_unreachable',
