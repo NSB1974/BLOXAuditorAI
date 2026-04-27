@@ -23,6 +23,11 @@ To install Metagoblins Scribble AI, follow these simple steps:
 
 # USE YOUR OWN IMAGES #
 
+## Diagnostics
+
+- `GET /api/health`: quick check that at least one explorer API key is configured.
+- `GET /api/diag`: outbound connectivity probe for explorer/fallback/audit upstream endpoints (safe output; does not expose secret key values).
+
 
 
 
