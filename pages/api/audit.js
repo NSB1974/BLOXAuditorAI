@@ -356,9 +356,9 @@ export default async function handler(req, res) {
     const safeAddress = address; // already validated as /^0x[a-fA-F0-9]{40}$/
 
     // Step 2: Send source code to xAI Grok for audit
-    const xaiApiKey = process.env.XAI_API_KEY;
+    const xaiApiKey = process.env.CONSOLEXAI_API_KEY;
     if (!xaiApiKey) {
-      return res.status(500).json({ error: 'Server configuration error: XAI_API_KEY is not set.' });
+      return res.status(500).json({ error: 'Server configuration error: CONSOLEXAI_API_KEY is not set.' });
     }
 
     const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
