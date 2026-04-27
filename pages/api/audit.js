@@ -60,6 +60,7 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
   const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
   let json = null;
   let lastNetworkError = null;
+  let lastApiError = null;
   const missingKeyErrors = [];
 
   for (const endpoint of explorer.endpoints) {
@@ -81,10 +82,51 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
     }
 
     if (!response.ok) {
-      throw new Error(`${explorer.name} returned HTTP ${response.status}`);
+      lastApiError = new Error(`${explorer.name} returned HTTP ${response.status}`);
+      continue;
     }
 
-    json = await response.json();
+    try {
+      json = await response.json();
+    } catch {
+      lastApiError = new Error(`${explorer.name} returned an invalid JSON response`);
+      continue;
+    }
+
+    if (json.status !== '1') {
+      // Distinguish API-level errors (rate limit, bad key, deprecated endpoint, …) from "contract not found"
+      const rawResult = typeof json.result === 'string' ? json.result : '';
+      const rawMessage = typeof json.message === 'string' ? json.message : '';
+      const detailMsg = `${rawMessage} ${rawResult}`.toLowerCase();
+
+      if (detailMsg.includes('rate limit')) {
+        const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
+        err.code = 'RATE_LIMITED';
+        throw err;
+      }
+
+      if (
+        detailMsg.includes('invalid api key') ||
+        detailMsg.includes('invalid apikey') ||
+        detailMsg.includes('missing or invalid api key')
+      ) {
+        // Try the next configured endpoint before failing the whole request.
+        lastApiError = new Error(`${explorer.name} API key is invalid or misconfigured.`);
+        lastApiError.code = 'INVALID_API_KEY';
+        continue;
+      }
+
+      if (detailMsg.includes('deprecated') || detailMsg.includes('v2')) {
+        // Endpoint-specific issue; try any remaining fallback endpoints.
+        lastApiError = new Error(`${explorer.name} API endpoint is deprecated or misconfigured.`);
+        lastApiError.code = 'EXPLORER_ENDPOINT_DEPRECATED';
+        continue;
+      }
+
+      // Treat non-fatal statuses as "not found" and stop trying alternate endpoints.
+      return null;
+    }
+
     break;
   }
 
@@ -96,36 +138,10 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
     if (lastNetworkError) {
       throw new Error(`${explorer.name} request failed: ${lastNetworkError.message || 'Network error'}`);
     }
+    if (lastApiError) {
+      throw lastApiError;
+    }
     throw new Error(`${explorer.name} request failed`);
-  }
-
-  if (json.status !== '1') {
-    // Distinguish API-level errors (rate limit, bad key, deprecated endpoint, …) from "contract not found"
-    const rawResult = typeof json.result === 'string' ? json.result : '';
-    const rawMessage = typeof json.message === 'string' ? json.message : '';
-    const detailMsg = `${rawMessage} ${rawResult}`.toLowerCase();
-
-    if (detailMsg.includes('rate limit')) {
-      const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
-      err.code = 'RATE_LIMITED';
-      throw err;
-    }
-    if (
-      detailMsg.includes('invalid api key') ||
-      detailMsg.includes('invalid apikey') ||
-      detailMsg.includes('missing or invalid api key')
-    ) {
-      const err = new Error(`${explorer.name} API key is invalid or misconfigured.`);
-      err.code = 'INVALID_API_KEY';
-      throw err;
-    }
-    if (detailMsg.includes('deprecated') || detailMsg.includes('v2')) {
-      const err = new Error(`${explorer.name} API endpoint is deprecated or misconfigured.`);
-      err.code = 'EXPLORER_ENDPOINT_DEPRECATED';
-      throw err;
-    }
-
-    return null;
   }
 
   if (!Array.isArray(json.result) || json.result.length === 0) {
