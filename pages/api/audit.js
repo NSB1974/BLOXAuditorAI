@@ -71,7 +71,6 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
       .filter((value) => typeof value === 'string' && value.trim().length > 0);
     const apiKeysToTry = [...new Set([...configuredKeys, ''])];
 
-    let shouldTryNextEndpoint = false;
     for (const apiKey of apiKeysToTry) {
       const url = buildExplorerUrl(endpoint, address, apiKey);
       let response;
@@ -79,13 +78,11 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
         response = await fetchWithTimeout(url, {}, 10000);
       } catch (err) {
         lastNetworkError = err;
-        shouldTryNextEndpoint = true;
         continue;
       }
 
       if (!response.ok) {
         lastApiError = new Error(`${explorer.name} returned HTTP ${response.status}`);
-        shouldTryNextEndpoint = true;
         continue;
       }
 
@@ -93,7 +90,6 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
         json = await response.json();
       } catch {
         lastApiError = new Error(`${explorer.name} returned an invalid JSON response`);
-        shouldTryNextEndpoint = true;
         continue;
       }
 
@@ -117,7 +113,6 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
           // Retry the same endpoint with any other configured key, then fall back to the next endpoint.
           lastApiError = new Error(`${explorer.name} API key is invalid or misconfigured.`);
           lastApiError.code = 'INVALID_API_KEY';
-          shouldTryNextEndpoint = true;
           continue;
         }
 
@@ -125,7 +120,6 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
           // Endpoint-specific issue; try any remaining fallback endpoints.
           lastApiError = new Error(`${explorer.name} API endpoint is deprecated or misconfigured.`);
           lastApiError.code = 'EXPLORER_ENDPOINT_DEPRECATED';
-          shouldTryNextEndpoint = true;
           break;
         }
 
@@ -133,24 +127,20 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
         return null;
       }
 
-      shouldTryNextEndpoint = false;
       break;
     }
 
     if (json) {
       break;
     }
-    if (!shouldTryNextEndpoint) {
-      break;
-    }
   }
 
   if (!json) {
-    if (lastNetworkError) {
-      throw new Error(`${explorer.name} request failed: ${lastNetworkError.message || 'Network error'}`);
-    }
     if (lastApiError) {
       throw lastApiError;
+    }
+    if (lastNetworkError) {
+      throw new Error(`${explorer.name} request failed: ${lastNetworkError.message || 'Network error'}`);
     }
     throw new Error(`${explorer.name} request failed`);
   }
