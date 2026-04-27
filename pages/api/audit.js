@@ -240,7 +240,11 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
           detailMsg.includes('not available on free tier') ||
           detailMsg.includes('please upgrade your api plan')
         ) {
-          const err = new Error(`${explorer.name} access for this chain requires a paid Etherscan API plan.`);
+          const isEtherscanV2Endpoint = endpoint.apiBase === 'https://api.etherscan.io/v2/api';
+          const planRestrictionMessage = isEtherscanV2Endpoint
+            ? `Access to the Etherscan v2 multi-chain API${endpoint.chainId ? ` for chain ${endpoint.chainId}` : ''} requires a paid API plan.`
+            : `${explorer.name} API access via ${endpoint.apiBase} requires a paid API plan.`;
+          const err = new Error(planRestrictionMessage);
           err.code = 'CHAIN_PLAN_RESTRICTED';
           throw err;
         }
