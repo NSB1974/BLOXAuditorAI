@@ -355,34 +355,52 @@ export default async function handler(req, res) {
     const safeName = contractName.replace(/[^\w\s.-]/g, '').slice(0, 100);
     const safeAddress = address; // already validated as /^0x[a-fA-F0-9]{40}$/
 
-    // Step 2: Send source code to 0x0.ai for audit
+    // Step 2: Send source code to xAI Grok for audit
+    const xaiApiKey = process.env.CONSOLEXAI_API_KEY;
+    if (!xaiApiKey) {
+      return res.status(500).json({ error: 'Server configuration error: CONSOLEXAI_API_KEY is not set.' });
+    }
+
     const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
 
-    // Use shorter timeout to stay within Vercel's serverless function limits
-    // Hobby plan: 10s, Pro plan: 60s (region-dependent)
-    // 8 seconds per attempt allows for 2 attempts within a 10s Vercel timeout with overhead
     const upstream = await fetchWithTimeout(
-      'https://api.0x0.ai/message',
+      'https://api.x.ai/v1/chat/completions',
       {
         method: 'POST',
         headers: {
-          accept: 'application/json',
+          'Authorization': `Bearer ${xaiApiKey}`,
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({ message: prompt }),
+        body: JSON.stringify({
+          model: 'grok-3-mini',
+          messages: [{ role: 'user', content: prompt }],
+        }),
       },
-      8000,
+      55000,
       1
     );
 
-    let data;
+    let xaiData;
     try {
-      data = await upstream.json();
+      xaiData = await upstream.json();
     } catch {
       return res.status(upstream.status).json({ error: `Audit service returned HTTP ${upstream.status}` });
     }
 
-    return res.status(upstream.status).json(data);
+    if (!upstream.ok) {
+      const detail = xaiData?.error?.message || xaiData?.error || `HTTP ${upstream.status}`;
+      if (upstream.status === 401 || upstream.status === 403) {
+        return res.status(500).json({ error: 'Server configuration error: the AI API key is invalid or unauthorised.' });
+      }
+      return res.status(upstream.status).json({ error: `Audit service error: ${detail}` });
+    }
+
+    const auditText = xaiData?.choices?.[0]?.message?.content;
+    if (!auditText) {
+      return res.status(502).json({ error: 'Audit service returned an unexpected response format.' });
+    }
+
+    return res.status(200).json({ message: auditText });
   } catch (e) {
     console.error('Audit request failed:', e.message);
     if (e.name === 'AbortError') {
@@ -403,6 +421,10 @@ export default async function handler(req, res) {
     if (e.code === 'NETWORK_ERROR') {
       return res.status(503).json({ error: e.message });
     }
-    return res.status(502).json({ error: e.message || 'Failed to process audit request' });
+    const msg = typeof e.message === 'string' ? e.message : '';
+    if (msg.toLowerCase().includes('fetch failed') || msg.toLowerCase().includes('enotfound') || msg.toLowerCase().includes('connect')) {
+      return res.status(503).json({ error: 'Could not reach the AI service. Please try again in a moment.' });
+    }
+    return res.status(502).json({ error: msg || 'Failed to process audit request' });
   }
 }
