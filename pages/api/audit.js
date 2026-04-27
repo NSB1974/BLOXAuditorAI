@@ -164,16 +164,17 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
         continue;
       }
 
+      let responseJson;
       try {
-        json = await response.json();
+        responseJson = await response.json();
       } catch {
         lastApiError = new Error(`${explorer.name} returned an invalid JSON response`);
         continue;
       }
 
-      if (json.status !== '1') {
-        const rawResult = typeof json.result === 'string' ? json.result : '';
-        const rawMessage = typeof json.message === 'string' ? json.message : '';
+      if (responseJson.status !== '1') {
+        const rawResult = typeof responseJson.result === 'string' ? responseJson.result : '';
+        const rawMessage = typeof responseJson.message === 'string' ? responseJson.message : '';
         const classified = classifyExplorerApiError(rawMessage, rawResult);
 
         if (classified.code === 'RATE_LIMITED') {
@@ -196,6 +197,7 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
         continue;
       }
 
+      json = responseJson;
       break;
     }
 
@@ -292,7 +294,7 @@ export default async function handler(req, res) {
         30000
       );
     } catch (err) {
-      const networkErr = new Error(formatNetworkErrorMessage('Audit service', err));
+      const networkErr = new Error(formatNetworkErrorMessage('Audit service', err), { cause: err });
       networkErr.code = 'NETWORK_ERROR';
       throw networkErr;
     }
@@ -307,7 +309,7 @@ export default async function handler(req, res) {
     return res.status(upstream.status).json(data);
   } catch (e) {
     console.error('Audit request failed');
-    if (e.name === 'AbortError') {
+    if (e.name === 'AbortError' || (e.code === 'NETWORK_ERROR' && e.cause?.name === 'AbortError')) {
       return res.status(504).json({ error: 'Audit service timed out. Please try again.' });
     }
     if (e.code === 'RATE_LIMITED') {
