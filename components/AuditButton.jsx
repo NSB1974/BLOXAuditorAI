@@ -10,6 +10,31 @@ const NETWORKS = [
 
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
+async function fetchAuditWithRetry(payload, attempts = 2) {
+  let lastError;
+
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      const response = await fetch('/api/audit', {
+        method: 'POST',
+        headers: {
+          accept: 'application/json',
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+      });
+      return response;
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 500));
+      }
+    }
+  }
+
+  throw lastError || new Error('Failed to contact audit API');
+}
+
 function AuditButton() {
   const chatBoxBodyRef = useRef(null);
   const inputFieldRef = useRef(null);
@@ -58,14 +83,7 @@ function AuditButton() {
     }
 
     try {
-      const response = await fetch('/api/audit', {
-        method: 'POST',
-        headers: {
-          accept: 'application/json',
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ message, network: selectedNetwork.id })
-      });
+      const response = await fetchAuditWithRetry({ message, network: selectedNetwork.id });
 
       if (!response.ok) {
         // Try to read the structured error message from the API first
@@ -127,7 +145,7 @@ function AuditButton() {
 
       // TypeError means fetch itself failed — server was never reached (network down, DNS failure, etc.)
       const errorText = e instanceof TypeError
-        ? 'Could not reach the server. Please check your internet connection and try again.'
+        ? 'Could not reach the server. In Chrome, disable ad-block/privacy extensions for this site, then hard refresh and try again.'
         : 'An unexpected error occurred while fetching the audit. Please try again.';
 
       const errEl = document.createElement('p');

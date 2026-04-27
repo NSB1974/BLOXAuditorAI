@@ -1,5 +1,6 @@
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const MAX_PROXY_DEPTH = 1;
+const DEFAULT_TIMEOUT_MS = 15000;
 
 const EXPLORER_CONFIG = {
   ethereum: {
@@ -31,14 +32,134 @@ const EXPLORER_CONFIG = {
   },
 };
 
-async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    return await fetch(url, { ...options, signal: controller.signal });
-  } finally {
-    clearTimeout(timer);
+const NETWORK_CHAIN_IDS = {
+  ethereum: '1',
+  base: '8453',
+  polygon: '137',
+  kava: '2222',
+};
+
+const BLOCKSCOUT_V2_BASE = {
+  ethereum: 'https://eth.blockscout.com/api/v2',
+  base: 'https://base.blockscout.com/api/v2',
+  polygon: 'https://polygon.blockscout.com/api/v2',
+};
+
+async function fetchSourceFromSourcify(address, network) {
+  const chainId = NETWORK_CHAIN_IDS[network];
+  if (!chainId) return null;
+
+  const url = `https://sourcify.dev/server/v2/contract/${chainId}/${address}?fields=all`;
+  const response = await fetchWithTimeout(url, {}, 12000, 2);
+  if (!response.ok) {
+    return null;
   }
+
+  const json = await response.json();
+  const fileEntries = Array.isArray(json?.files) ? json.files : [];
+  if (fileEntries.length === 0) {
+    return null;
+  }
+
+  const sources = fileEntries
+    .filter((file) => file?.name && file?.content && file.name.endsWith('.sol'))
+    .map((file) => `// File: ${file.name}\n${file.content}`);
+
+  if (sources.length === 0) {
+    return null;
+  }
+
+  return {
+    sourceCode: sources.join('\n\n'),
+    contractName: json?.name || 'Unknown',
+  };
+}
+
+async function fetchSourceFromBlockscout(address, network) {
+  const apiBase = BLOCKSCOUT_V2_BASE[network];
+  if (!apiBase) return null;
+
+  const url = `${apiBase}/smart-contracts/${address}`;
+  const response = await fetchWithTimeout(url, {}, 12000, 2);
+  if (!response.ok) {
+    return null;
+  }
+
+  const json = await response.json();
+  const sourceCode = typeof json?.source_code === 'string' ? json.source_code : '';
+  if (!sourceCode.trim()) {
+    return null;
+  }
+
+  return {
+    sourceCode,
+    contractName: json?.name || 'Unknown',
+  };
+}
+
+async function getSourceWithFallbacks(address, network, depth = 0) {
+  try {
+    const explorerData = await getContractSource(address, network, depth);
+    if (explorerData) {
+      return explorerData;
+    }
+  } catch (err) {
+    // Continue into public-source fallbacks for read-only source retrieval.
+    if (!['CHAIN_PLAN_RESTRICTED', 'INVALID_API_KEY'].includes(err?.code)) {
+      throw err;
+    }
+  }
+
+  try {
+    const sourcifyData = await fetchSourceFromSourcify(address, network);
+    if (sourcifyData) {
+      return sourcifyData;
+    }
+  } catch {
+    // Continue to Blockscout fallback.
+  }
+
+  try {
+    const blockscoutData = await fetchSourceFromBlockscout(address, network);
+    if (blockscoutData) {
+      return blockscoutData;
+    }
+  } catch {
+    // Ignore fallback failures and return null.
+  }
+
+  return null;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS, attempts = 2) {
+  const normalizedAttempts = Math.max(1, Math.trunc(attempts) || 1);
+  let lastError = null;
+
+  for (let i = 0; i < normalizedAttempts; i += 1) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (err) {
+      lastError = err;
+      if (i < normalizedAttempts - 1) {
+        continue;
+      }
+      throw err;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw lastError || new Error('Network request failed');
+}
+
+
+function getExplorerErrorDetail(json) {
+  const rawResult = typeof json?.result === 'string' ? json.result : '';
+  const rawMessage = typeof json?.message === 'string' ? json.message : '';
+  return `${rawMessage} ${rawResult}`.toLowerCase();
 }
 
 function buildExplorerUrl(endpoint, address, apiKey) {
@@ -111,9 +232,7 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
 
       if (json.status !== '1') {
         // Distinguish API-level errors (rate limit, bad key, deprecated endpoint, …) from "contract not found"
-        const rawResult = typeof json.result === 'string' ? json.result : '';
-        const rawMessage = typeof json.message === 'string' ? json.message : '';
-        const detailMsg = `${rawMessage} ${rawResult}`.toLowerCase();
+        const detailMsg = getExplorerErrorDetail(json);
 
         if (detailMsg.includes('rate limit')) {
           const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
@@ -130,6 +249,20 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
           lastApiError = new Error(`${explorer.name} API key is invalid or misconfigured.`);
           lastApiError.code = 'INVALID_API_KEY';
           continue;
+        }
+
+        if (
+          detailMsg.includes('not supported for this chain') ||
+          detailMsg.includes('not available on free tier') ||
+          detailMsg.includes('please upgrade your api plan')
+        ) {
+          const isEtherscanV2Endpoint = endpoint.apiBase === 'https://api.etherscan.io/v2/api';
+          const planRestrictionMessage = isEtherscanV2Endpoint
+            ? `Access to the Etherscan v2 multi-chain API${endpoint.chainId ? ` for chain ${endpoint.chainId}` : ''} requires a paid API plan.`
+            : `${explorer.name} API access via ${endpoint.apiBase} requires a paid API plan.`;
+          const err = new Error(planRestrictionMessage);
+          err.code = 'CHAIN_PLAN_RESTRICTED';
+          throw err;
         }
 
         if (detailMsg.includes('deprecated') || detailMsg.includes('v2')) {
@@ -156,7 +289,8 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
       throw lastApiError;
     }
     if (lastNetworkError) {
-      const err = new Error(formatNetworkErrorMessage(explorer.name, lastNetworkError));
+      const reason = lastNetworkError?.cause?.code || lastNetworkError?.message || 'Network error';
+      const err = new Error(`${explorer.name} request failed: ${reason}`);
       err.code = 'NETWORK_ERROR';
       throw err;
     }
@@ -208,7 +342,7 @@ export default async function handler(req, res) {
 
   try {
     // Step 1: Fetch contract source code from Etherscan
-    const contractData = await getContractSource(address, network);
+    const contractData = await getSourceWithFallbacks(address, network);
 
     if (!contractData) {
       const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
@@ -234,7 +368,8 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({ message: prompt }),
       },
-      30000
+      30000,
+      2
     );
 
     let data;
@@ -255,6 +390,9 @@ export default async function handler(req, res) {
     }
     if (e.code === 'EXPLORER_ENDPOINT_DEPRECATED') {
       return res.status(502).json({ error: `${e.message} Please contact support.` });
+    }
+    if (e.code === 'CHAIN_PLAN_RESTRICTED') {
+      return res.status(403).json({ error: `${e.message} The selected network may require a paid or upgraded block explorer API plan for this request.` });
     }
     if (e.code === 'INVALID_API_KEY' || (typeof e.message === 'string' && e.message.includes('Missing required API key:'))) {
       return res.status(500).json({ error: 'Server configuration error: the block explorer API key is missing or invalid.' });
