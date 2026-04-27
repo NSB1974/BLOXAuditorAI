@@ -358,6 +358,9 @@ export default async function handler(req, res) {
     // Step 2: Send source code to 0x0.ai for audit
     const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
 
+    // Use shorter timeout to stay within Vercel's serverless function limits
+    // Hobby plan: 10s, Pro plan: 60s (region-dependent)
+    // 8 seconds per attempt allows for 2 attempts within a 10s Vercel timeout with overhead
     const upstream = await fetchWithTimeout(
       'https://api.0x0.ai/message',
       {
@@ -368,8 +371,8 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({ message: prompt }),
       },
-      30000,
-      2
+      8000,
+      1
     );
 
     let data;
@@ -381,9 +384,9 @@ export default async function handler(req, res) {
 
     return res.status(upstream.status).json(data);
   } catch (e) {
-    console.error('Audit request failed');
+    console.error('Audit request failed:', e.message);
     if (e.name === 'AbortError') {
-      return res.status(504).json({ error: 'Audit service timed out. Please try again.' });
+      return res.status(504).json({ error: 'Audit service timed out. The AI service may be experiencing high load. Please try again in a few moments.' });
     }
     if (e.code === 'RATE_LIMITED') {
       return res.status(429).json({ error: e.message });
