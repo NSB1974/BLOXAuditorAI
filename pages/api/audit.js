@@ -132,9 +132,10 @@ async function getSourceWithFallbacks(address, network, depth = 0) {
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS, attempts = 2) {
+  const normalizedAttempts = Math.max(1, Math.trunc(attempts) || 1);
   let lastError = null;
 
-  for (let i = 0; i < attempts; i += 1) {
+  for (let i = 0; i < normalizedAttempts; i += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -142,7 +143,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
       return await fetch(url, { ...options, signal: controller.signal });
     } catch (err) {
       lastError = err;
-      if (i < attempts - 1) {
+      if (i < normalizedAttempts - 1) {
         continue;
       }
       throw err;
