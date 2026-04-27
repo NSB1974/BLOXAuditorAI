@@ -358,19 +358,26 @@ export default async function handler(req, res) {
     // Step 2: Send source code to 0x0.ai for audit
     const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
 
-    const upstream = await fetchWithTimeout(
-      'https://api.0x0.ai/message',
-      {
-        method: 'POST',
-        headers: {
-          accept: 'application/json',
-          'Content-Type': 'application/json',
+    let upstream;
+    try {
+      upstream = await fetchWithTimeout(
+        'https://api.0x0.ai/message',
+        {
+          method: 'POST',
+          headers: {
+            accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ message: prompt }),
         },
-        body: JSON.stringify({ message: prompt }),
-      },
-      30000,
-      2
-    );
+        30000,
+        2
+      );
+    } catch (fetchErr) {
+      const err = new Error('The AI audit service is currently unreachable. Please try again later.');
+      err.code = 'UPSTREAM_UNREACHABLE';
+      throw err;
+    }
 
     let data;
     try {
@@ -399,6 +406,13 @@ export default async function handler(req, res) {
     }
     if (e.code === 'NETWORK_ERROR') {
       return res.status(503).json({ error: e.message });
+    }
+    if (e.code === 'UPSTREAM_UNREACHABLE') {
+      return res.status(503).json({ error: e.message });
+    }
+    // Guard against raw low-level fetch error messages leaking to the client
+    if (typeof e.message === 'string' && (e.message.toLowerCase().includes('fetch failed') || e.message.toLowerCase().includes('connect tunnel failed'))) {
+      return res.status(503).json({ error: 'The audit service could not be reached. Please try again later.' });
     }
     return res.status(502).json({ error: e.message || 'Failed to process audit request' });
   }
