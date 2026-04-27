@@ -1,0 +1,7 @@
+curl https://api.x.ai/v1/responses \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer consolexai_API_KEY" \
+    -d '{
+      "model": "grok-4.20-reasoning",
+      "input": "What is the meaning of life, the universe, and everything?"
+    }'
