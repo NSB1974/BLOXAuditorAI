@@ -15,11 +15,12 @@ Tailwind CSS: Framework for stunning, responsive designs that elevate your app t
 
 # Installation
 
-To install Metagoblins Scribble AI, follow these simple steps:
+To install BLOXAuditorAI, follow these simple steps:
 
 1. Clone this repository
-2. Install the required dependencies using `npm install or yarn`.
-3. Run the script using `yarn run dev.  
+2. Install the required dependencies using `npm install` or `yarn`.
+3. Copy `.env.example` to `.env` and fill in your API keys: `cp .env.example .env`
+4. Run the development server using `yarn run dev` or `npm run dev`.
 
 # USE YOUR OWN IMAGES #
 
