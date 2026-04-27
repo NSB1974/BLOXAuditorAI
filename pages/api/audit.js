@@ -32,6 +32,105 @@ const EXPLORER_CONFIG = {
   },
 };
 
+const NETWORK_CHAIN_IDS = {
+  ethereum: '1',
+  base: '8453',
+  polygon: '137',
+  kava: '2222',
+};
+
+const BLOCKSCOUT_V2_BASE = {
+  ethereum: 'https://eth.blockscout.com/api/v2',
+  base: 'https://base.blockscout.com/api/v2',
+  polygon: 'https://polygon.blockscout.com/api/v2',
+};
+
+async function fetchSourceFromSourcify(address, network) {
+  const chainId = NETWORK_CHAIN_IDS[network];
+  if (!chainId) return null;
+
+  const url = `https://sourcify.dev/server/v2/contract/${chainId}/${address}?fields=all`;
+  const response = await fetchWithTimeout(url, {}, 12000, 2);
+  if (!response.ok) {
+    return null;
+  }
+
+  const json = await response.json();
+  const fileEntries = Array.isArray(json?.files) ? json.files : [];
+  if (fileEntries.length === 0) {
+    return null;
+  }
+
+  const sources = fileEntries
+    .filter((file) => file?.name && file?.content && file.name.endsWith('.sol'))
+    .map((file) => `// File: ${file.name}\n${file.content}`);
+
+  if (sources.length === 0) {
+    return null;
+  }
+
+  return {
+    sourceCode: sources.join('\n\n'),
+    contractName: json?.name || 'Unknown',
+  };
+}
+
+async function fetchSourceFromBlockscout(address, network) {
+  const apiBase = BLOCKSCOUT_V2_BASE[network];
+  if (!apiBase) return null;
+
+  const url = `${apiBase}/smart-contracts/${address}`;
+  const response = await fetchWithTimeout(url, {}, 12000, 2);
+  if (!response.ok) {
+    return null;
+  }
+
+  const json = await response.json();
+  const sourceCode = typeof json?.source_code === 'string' ? json.source_code : '';
+  if (!sourceCode.trim()) {
+    return null;
+  }
+
+  return {
+    sourceCode,
+    contractName: json?.name || 'Unknown',
+  };
+}
+
+async function getSourceWithFallbacks(address, network, depth = 0) {
+  try {
+    const explorerData = await getContractSource(address, network, depth);
+    if (explorerData) {
+      return explorerData;
+    }
+  } catch (err) {
+    // Continue into public-source fallbacks for read-only source retrieval.
+    if (!['CHAIN_PLAN_RESTRICTED', 'INVALID_API_KEY'].includes(err?.code)) {
+      throw err;
+    }
+  }
+
+  try {
+    const sourcifyData = await fetchSourceFromSourcify(address, network);
+    if (sourcifyData) {
+      return sourcifyData;
+    }
+  } catch {
+    // Continue to Blockscout fallback.
+  }
+
+  try {
+    const blockscoutData = await fetchSourceFromBlockscout(address, network);
+    if (blockscoutData) {
+      return blockscoutData;
+    }
+  } catch {
+    // Ignore fallback failures and return null.
+  }
+
+  return null;
+}
+
 async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS, attempts = 2) {
   let lastError = null;
 
@@ -221,7 +320,7 @@ export default async function handler(req, res) {
 
   try {
     // Step 1: Fetch contract source code from Etherscan
-    const contractData = await getContractSource(address, network);
+    const contractData = await getSourceWithFallbacks(address, network);
 
     if (!contractData) {
       const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
