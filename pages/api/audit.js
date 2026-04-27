@@ -46,8 +46,11 @@ function buildExplorerUrl(endpoint, address, apiKey) {
     module: 'contract',
     action: 'getsourcecode',
     address,
-    apikey: apiKey,
   });
+
+  if (apiKey) {
+    params.set('apikey', apiKey);
+  }
 
   if (endpoint.chainId) {
     params.set('chainid', endpoint.chainId);
@@ -61,85 +64,83 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
   let json = null;
   let lastNetworkError = null;
   let lastApiError = null;
-  const missingKeyErrors = [];
 
   for (const endpoint of explorer.endpoints) {
-    const apiKeyEnv = endpoint.apiKeyEnvs.find((envName) => !!process.env[envName]);
-    const apiKey = apiKeyEnv ? process.env[apiKeyEnv] : '';
+    const configuredKeys = endpoint.apiKeyEnvs
+      .map((envName) => process.env[envName])
+      .filter((value) => typeof value === 'string' && value.trim().length > 0);
+    const apiKeysToTry = [...new Set([...configuredKeys, ''])];
 
-    if (!apiKey) {
-      missingKeyErrors.push(...endpoint.apiKeyEnvs);
-      continue;
-    }
-
-    const url = buildExplorerUrl(endpoint, address, apiKey);
-    let response;
-    try {
-      response = await fetchWithTimeout(url, {}, 10000);
-    } catch (err) {
-      lastNetworkError = err;
-      continue;
-    }
-
-    if (!response.ok) {
-      lastApiError = new Error(`${explorer.name} returned HTTP ${response.status}`);
-      continue;
-    }
-
-    try {
-      json = await response.json();
-    } catch {
-      lastApiError = new Error(`${explorer.name} returned an invalid JSON response`);
-      continue;
-    }
-
-    if (json.status !== '1') {
-      // Distinguish API-level errors (rate limit, bad key, deprecated endpoint, …) from "contract not found"
-      const rawResult = typeof json.result === 'string' ? json.result : '';
-      const rawMessage = typeof json.message === 'string' ? json.message : '';
-      const detailMsg = `${rawMessage} ${rawResult}`.toLowerCase();
-
-      if (detailMsg.includes('rate limit')) {
-        const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
-        err.code = 'RATE_LIMITED';
-        throw err;
-      }
-
-      if (
-        detailMsg.includes('invalid api key') ||
-        detailMsg.includes('invalid apikey') ||
-        detailMsg.includes('missing or invalid api key')
-      ) {
-        // Try the next configured endpoint before failing the whole request.
-        lastApiError = new Error(`${explorer.name} API key is invalid or misconfigured.`);
-        lastApiError.code = 'INVALID_API_KEY';
+    for (const apiKey of apiKeysToTry) {
+      const url = buildExplorerUrl(endpoint, address, apiKey);
+      let response;
+      try {
+        response = await fetchWithTimeout(url, {}, 10000);
+      } catch (err) {
+        lastNetworkError = err;
         continue;
       }
 
-      if (detailMsg.includes('deprecated') || detailMsg.includes('v2')) {
-        // Endpoint-specific issue; try any remaining fallback endpoints.
-        lastApiError = new Error(`${explorer.name} API endpoint is deprecated or misconfigured.`);
-        lastApiError.code = 'EXPLORER_ENDPOINT_DEPRECATED';
+      if (!response.ok) {
+        lastApiError = new Error(`${explorer.name} returned HTTP ${response.status}`);
         continue;
       }
 
-      // Treat non-fatal statuses as "not found" and stop trying alternate endpoints.
-      return null;
+      try {
+        json = await response.json();
+      } catch {
+        lastApiError = new Error(`${explorer.name} returned an invalid JSON response`);
+        continue;
+      }
+
+      if (json.status !== '1') {
+        // Distinguish API-level errors (rate limit, bad key, deprecated endpoint, …) from "contract not found"
+        const rawResult = typeof json.result === 'string' ? json.result : '';
+        const rawMessage = typeof json.message === 'string' ? json.message : '';
+        const detailMsg = `${rawMessage} ${rawResult}`.toLowerCase();
+
+        if (detailMsg.includes('rate limit')) {
+          const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
+          err.code = 'RATE_LIMITED';
+          throw err;
+        }
+
+        if (
+          detailMsg.includes('invalid api key') ||
+          detailMsg.includes('invalid apikey') ||
+          detailMsg.includes('missing or invalid api key')
+        ) {
+          // Retry the same endpoint with any other configured key, then fall back to the next endpoint.
+          lastApiError = new Error(`${explorer.name} API key is invalid or misconfigured.`);
+          lastApiError.code = 'INVALID_API_KEY';
+          continue;
+        }
+
+        if (detailMsg.includes('deprecated') || detailMsg.includes('v2')) {
+          // Endpoint-specific issue; try any remaining fallback endpoints.
+          lastApiError = new Error(`${explorer.name} API endpoint is deprecated or misconfigured.`);
+          lastApiError.code = 'EXPLORER_ENDPOINT_DEPRECATED';
+          break;
+        }
+
+        // Treat non-fatal statuses as "not found" and stop trying alternate endpoints.
+        return null;
+      }
+
+      break;
     }
 
-    break;
+    if (json) {
+      break;
+    }
   }
 
   if (!json) {
-    const uniqueMissingKeys = [...new Set(missingKeyErrors)];
-    if (uniqueMissingKeys.length > 0) {
-      throw new Error(`Missing required API key: ${uniqueMissingKeys.join(' or ')}`);
+    if (lastApiError) {
+      throw lastApiError;
     }
     if (lastNetworkError) {
       throw new Error(`${explorer.name} request failed: ${lastNetworkError.message || 'Network error'}`);
-    }
-    if (lastApiError) {
-      throw lastApiError;
     }
     throw new Error(`${explorer.name} request failed`);
   }
