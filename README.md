@@ -23,6 +23,21 @@ To install Metagoblins Scribble AI, follow these simple steps:
 
 # USE YOUR OWN IMAGES #
 
+# Environment Variables
+
+Copy `.env.local.example` to `.env.local` and fill in the values before running locally.
+For Vercel deployments, set these in **Project Settings → Environment Variables**.
+
+| Variable | Required | Description |
+|---|---|---|
+| `ETHERSCAN_API_KEY` | Recommended | Etherscan API key for fetching Ethereum / Base / Polygon contract source. Get a free key at <https://etherscan.io/myapikey>. Without this key the app falls back to unauthenticated requests which are rate-limited. |
+| `BASESCAN_API_KEY` | Optional | Basescan API key for Base contracts. Falls back to `ETHERSCAN_API_KEY` if unset. Get one at <https://basescan.org/myapikey>. |
+| `POLYGONSCAN_API_KEY` | Optional | Polygonscan API key for Polygon contracts. Falls back to `ETHERSCAN_API_KEY` if unset. Get one at <https://polygonscan.com/myapikey>. |
+| `KAVASCAN_API_KEY` | Optional | Kavascan API key for Kava contracts. Get one at <https://kavascan.com/myapikey>. |
+
+> **Note:** The AI audit service (`https://api.0x0.ai/message`) requires no API key and is called server-side. No secrets are needed for it.
+
+
 
 
 

@@ -368,8 +368,8 @@ export default async function handler(req, res) {
         },
         body: JSON.stringify({ message: prompt }),
       },
-      30000,
-      2
+      25000,
+      1
     );
 
     let data;
@@ -381,7 +381,7 @@ export default async function handler(req, res) {
 
     return res.status(upstream.status).json(data);
   } catch (e) {
-    console.error('Audit request failed');
+    console.error('[audit] request failed – code=%s message=%s', e?.code ?? '', e?.message ?? String(e));
     if (e.name === 'AbortError') {
       return res.status(504).json({ error: 'Audit service timed out. Please try again.' });
     }
