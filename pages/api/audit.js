@@ -142,8 +142,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
       return await fetch(url, { ...options, signal: controller.signal });
     } catch (err) {
       lastError = err;
-      const isAbort = err && err.name === 'AbortError';
-      if (!isAbort && i < attempts - 1) {
+      if (i < attempts - 1) {
         continue;
       }
       throw err;
