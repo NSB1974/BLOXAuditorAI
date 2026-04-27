@@ -98,6 +98,8 @@ async function fetchSourceFromBlockscout(address, network) {
 }
 
 async function getSourceWithFallbacks(address, network, depth = 0) {
+  let swallowedExplorerError = null;
+
   try {
     const explorerData = await getContractSource(address, network, depth);
     if (explorerData) {
@@ -108,6 +110,8 @@ async function getSourceWithFallbacks(address, network, depth = 0) {
     if (!['CHAIN_PLAN_RESTRICTED', 'INVALID_API_KEY'].includes(err?.code)) {
       throw err;
     }
+    // Preserve the error so we can rethrow it if all fallbacks also fail.
+    swallowedExplorerError = err;
   }
 
   try {
@@ -125,7 +129,13 @@ async function getSourceWithFallbacks(address, network, depth = 0) {
       return blockscoutData;
     }
   } catch {
-    // Ignore fallback failures and return null.
+    // All fallbacks exhausted.
+  }
+
+  // If a specific explorer error was swallowed and all fallbacks failed, surface it
+  // so the caller can return the appropriate HTTP status (403, 500, etc.).
+  if (swallowedExplorerError) {
+    throw swallowedExplorerError;
   }
 
   return null;
