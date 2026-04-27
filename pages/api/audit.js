@@ -97,6 +97,44 @@ function isNotFoundLikeExplorerResult(detailMsg) {
   );
 }
 
+function classifyExplorerApiError(rawMessage, rawResult) {
+  const detailMsg = `${rawMessage || ''} ${rawResult || ''}`.toLowerCase();
+
+  if (detailMsg.includes('rate limit')) {
+    return {
+      code: 'RATE_LIMITED',
+      message: 'API rate limit reached. Please try again later.',
+    };
+  }
+
+  if (
+    detailMsg.includes('invalid api key') ||
+    detailMsg.includes('invalid apikey') ||
+    detailMsg.includes('missing or invalid api key')
+  ) {
+    return {
+      code: 'INVALID_API_KEY',
+      message: 'API key is invalid or misconfigured.',
+    };
+  }
+
+  if (detailMsg.includes('deprecated')) {
+    return {
+      code: 'EXPLORER_ENDPOINT_DEPRECATED',
+      message: 'API endpoint is deprecated or misconfigured.',
+    };
+  }
+
+  if (isNotFoundLikeExplorerResult(detailMsg)) {
+    return { code: 'NOT_FOUND' };
+  }
+
+  return {
+    code: 'EXPLORER_API_ERROR',
+    message: rawMessage || rawResult || 'Unknown error',
+  };
+}
+
 async function getContractSource(address, network = 'ethereum', depth = 0) {
   const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
   let json = null;
@@ -134,44 +172,27 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
       }
 
       if (json.status !== '1') {
-        // Distinguish API-level errors (rate limit, bad key, deprecated endpoint, …) from "contract not found"
         const rawResult = typeof json.result === 'string' ? json.result : '';
         const rawMessage = typeof json.message === 'string' ? json.message : '';
-        const detailMsg = `${rawMessage} ${rawResult}`.toLowerCase();
+        const classified = classifyExplorerApiError(rawMessage, rawResult);
 
-        if (detailMsg.includes('rate limit')) {
-          const err = new Error(`${explorer.name} API rate limit reached. Please try again later.`);
-          err.code = 'RATE_LIMITED';
+        if (classified.code === 'RATE_LIMITED') {
+          const err = new Error(`${explorer.name} ${classified.message}`);
+          err.code = classified.code;
           throw err;
         }
 
-        if (
-          detailMsg.includes('invalid api key') ||
-          detailMsg.includes('invalid apikey') ||
-          detailMsg.includes('missing or invalid api key')
-        ) {
-          // Retry the same endpoint with any other configured key, then fall back to the next endpoint.
-          lastApiError = new Error(`${explorer.name} API key is invalid or misconfigured.`);
-          lastApiError.code = 'INVALID_API_KEY';
-          continue;
-        }
-
-        if (detailMsg.includes('deprecated') || detailMsg.includes('v2')) {
-          // Endpoint-specific issue; try any remaining fallback endpoints.
-          lastApiError = new Error(`${explorer.name} API endpoint is deprecated or misconfigured.`);
-          lastApiError.code = 'EXPLORER_ENDPOINT_DEPRECATED';
-          break;
-        }
-
-        if (isNotFoundLikeExplorerResult(detailMsg)) {
-          // Verified "not found / unverified" case.
+        if (classified.code === 'NOT_FOUND') {
           return null;
         }
 
-        // Preserve non-not-found API errors so callers see actionable diagnostics
-        // instead of a generic "source code not found".
-        lastApiError = new Error(`${explorer.name} API error: ${rawMessage || rawResult || 'Unknown error'}`);
-        lastApiError.code = 'EXPLORER_API_ERROR';
+        lastApiError = new Error(`${explorer.name} ${classified.message}`);
+        lastApiError.code = classified.code;
+
+        // Endpoint-specific issue; try any remaining fallback endpoints.
+        if (classified.code === 'EXPLORER_ENDPOINT_DEPRECATED') {
+          break;
+        }
         continue;
       }
 
