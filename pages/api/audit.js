@@ -59,6 +59,44 @@ function buildExplorerUrl(endpoint, address, apiKey) {
   return `${endpoint.apiBase}?${params.toString()}`;
 }
 
+function getErrorDetailString(err) {
+  const messages = [
+    err?.message,
+    err?.cause?.message,
+    err?.cause?.code,
+    err?.code,
+  ]
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase());
+
+  return messages.join(' | ');
+}
+
+function formatNetworkErrorMessage(serviceName, err) {
+  const details = getErrorDetailString(err);
+
+  if (details.includes('fetch failed') || details.includes('connect tunnel failed')) {
+    return `${serviceName} request failed due to outbound network restrictions (proxy/firewall).`;
+  }
+  if (details.includes('enotfound') || details.includes('eai_again')) {
+    return `${serviceName} request failed due to DNS/network resolution issues.`;
+  }
+  if (details.includes('timed out') || details.includes('abort')) {
+    return `${serviceName} request timed out.`;
+  }
+
+  return `${serviceName} request failed: ${err?.message || 'Network error'}`;
+}
+
+function isNotFoundLikeExplorerResult(detailMsg) {
+  return (
+    detailMsg.includes('contract source code not verified') ||
+    detailMsg.includes('source code not verified') ||
+    detailMsg.includes('unable to locate contractcode at') ||
+    detailMsg.includes('contract not found')
+  );
+}
+
 async function getContractSource(address, network = 'ethereum', depth = 0) {
   const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
   let json = null;
@@ -69,7 +107,9 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
     const configuredKeys = endpoint.apiKeyEnvs
       .map((envName) => process.env[envName])
       .filter((value) => typeof value === 'string' && value.trim().length > 0);
-    const apiKeysToTry = [...new Set([...configuredKeys, ''])];
+    // If keys are configured, do not force a no-key retry because that can
+    // produce misleading "invalid/missing api key" errors after a valid keyed request.
+    const apiKeysToTry = configuredKeys.length > 0 ? [...new Set(configuredKeys)] : [''];
 
     for (const apiKey of apiKeysToTry) {
       const url = buildExplorerUrl(endpoint, address, apiKey);
@@ -123,8 +163,16 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
           break;
         }
 
-        // Treat non-fatal statuses as "not found" and stop trying alternate endpoints.
-        return null;
+        if (isNotFoundLikeExplorerResult(detailMsg)) {
+          // Verified "not found / unverified" case.
+          return null;
+        }
+
+        // Preserve non-not-found API errors so callers see actionable diagnostics
+        // instead of a generic "source code not found".
+        lastApiError = new Error(`${explorer.name} API error: ${rawMessage || rawResult || 'Unknown error'}`);
+        lastApiError.code = 'EXPLORER_API_ERROR';
+        continue;
       }
 
       break;
@@ -140,7 +188,9 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
       throw lastApiError;
     }
     if (lastNetworkError) {
-      throw new Error(`${explorer.name} request failed: ${lastNetworkError.message || 'Network error'}`);
+      const err = new Error(formatNetworkErrorMessage(explorer.name, lastNetworkError));
+      err.code = 'NETWORK_ERROR';
+      throw err;
     }
     throw new Error(`${explorer.name} request failed`);
   }
@@ -206,18 +256,25 @@ export default async function handler(req, res) {
     // Step 2: Send source code to 0x0.ai for audit
     const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
 
-    const upstream = await fetchWithTimeout(
-      'https://api.0x0.ai/message',
-      {
-        method: 'POST',
-        headers: {
-          accept: 'application/json',
-          'Content-Type': 'application/json',
+    let upstream;
+    try {
+      upstream = await fetchWithTimeout(
+        'https://api.0x0.ai/message',
+        {
+          method: 'POST',
+          headers: {
+            accept: 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ message: prompt }),
         },
-        body: JSON.stringify({ message: prompt }),
-      },
-      30000
-    );
+        30000
+      );
+    } catch (err) {
+      const networkErr = new Error(formatNetworkErrorMessage('Audit service', err));
+      networkErr.code = 'NETWORK_ERROR';
+      throw networkErr;
+    }
 
     let data;
     try {
@@ -238,8 +295,14 @@ export default async function handler(req, res) {
     if (e.code === 'EXPLORER_ENDPOINT_DEPRECATED') {
       return res.status(502).json({ error: `${e.message} Please contact support.` });
     }
+    if (e.code === 'EXPLORER_API_ERROR') {
+      return res.status(502).json({ error: e.message });
+    }
     if (e.code === 'INVALID_API_KEY' || (typeof e.message === 'string' && e.message.includes('Missing required API key:'))) {
       return res.status(500).json({ error: 'Server configuration error: the block explorer API key is missing or invalid.' });
+    }
+    if (e.code === 'NETWORK_ERROR') {
+      return res.status(503).json({ error: e.message });
     }
     return res.status(502).json({ error: e.message || 'Failed to process audit request' });
   }
