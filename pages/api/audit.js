@@ -59,6 +59,22 @@ function buildExplorerUrl(endpoint, address, apiKey) {
   return `${endpoint.apiBase}?${params.toString()}`;
 }
 
+function formatNetworkErrorMessage(explorerName, err) {
+  const details = String(err?.message || '').toLowerCase();
+
+  if (details.includes('fetch failed') || details.includes('connect tunnel failed')) {
+    return `${explorerName} request failed due to outbound network restrictions (proxy/firewall).`;
+  }
+  if (details.includes('enotfound') || details.includes('eai_again')) {
+    return `${explorerName} request failed due to DNS/network resolution issues.`;
+  }
+  if (details.includes('timed out') || details.includes('abort')) {
+    return `${explorerName} request timed out.`;
+  }
+
+  return `${explorerName} request failed: ${err?.message || 'Network error'}`;
+}
+
 async function getContractSource(address, network = 'ethereum', depth = 0) {
   const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
   let json = null;
@@ -140,7 +156,9 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
       throw lastApiError;
     }
     if (lastNetworkError) {
-      throw new Error(`${explorer.name} request failed: ${lastNetworkError.message || 'Network error'}`);
+      const err = new Error(formatNetworkErrorMessage(explorer.name, lastNetworkError));
+      err.code = 'NETWORK_ERROR';
+      throw err;
     }
     throw new Error(`${explorer.name} request failed`);
   }
@@ -240,6 +258,9 @@ export default async function handler(req, res) {
     }
     if (e.code === 'INVALID_API_KEY' || (typeof e.message === 'string' && e.message.includes('Missing required API key:'))) {
       return res.status(500).json({ error: 'Server configuration error: the block explorer API key is missing or invalid.' });
+    }
+    if (e.code === 'NETWORK_ERROR') {
+      return res.status(503).json({ error: e.message });
     }
     return res.status(502).json({ error: e.message || 'Failed to process audit request' });
   }
