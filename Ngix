@@ -1,4 +1,25 @@
-# Example Nginx config check
+# Example Nginx reverse-proxy config
+# Place this inside a server { ... } block.
+
+# Proxy all requests to the app running locally on port 3000.
 location / {
-    proxy_pass http://localhost:3000; # Ensure this port matches your app
+    proxy_http_version 1.1;
+
+    # Preserve original request information
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+
+    # Support WebSockets / SSE (upgrade connections)
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+
+    # Pass to your app (ensure this port matches your app)
+    proxy_pass http://127.0.0.1:3000;
+
+    # Reasonable timeouts for typical web apps
+    proxy_connect_timeout 60s;
+    proxy_send_timeout 60s;
+    proxy_read_timeout 60s;
 }
