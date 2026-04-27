@@ -4,26 +4,30 @@ const MAX_PROXY_DEPTH = 1;
 const EXPLORER_CONFIG = {
   ethereum: {
     name: 'Etherscan',
-    apiBase: 'https://api.etherscan.io/v2/api',
-    apiKeyEnv: 'ETHERSCAN_API_KEY',
-    chainId: '1',
+    endpoints: [
+      { apiBase: 'https://api.etherscan.io/v2/api', apiKeyEnvs: ['ETHERSCAN_API_KEY'], chainId: '1' },
+      { apiBase: 'https://api.etherscan.io/api', apiKeyEnvs: ['ETHERSCAN_API_KEY'] },
+    ],
   },
   base: {
     name: 'Basescan',
-    apiBase: 'https://api.etherscan.io/v2/api',
-    apiKeyEnv: 'ETHERSCAN_API_KEY',
-    chainId: '8453',
+    endpoints: [
+      { apiBase: 'https://api.etherscan.io/v2/api', apiKeyEnvs: ['ETHERSCAN_API_KEY'], chainId: '8453' },
+      { apiBase: 'https://api.basescan.org/api', apiKeyEnvs: ['BASESCAN_API_KEY', 'ETHERSCAN_API_KEY'] },
+    ],
   },
   polygon: {
     name: 'Polygonscan',
-    apiBase: 'https://api.etherscan.io/v2/api',
-    apiKeyEnv: 'ETHERSCAN_API_KEY',
-    chainId: '137',
+    endpoints: [
+      { apiBase: 'https://api.etherscan.io/v2/api', apiKeyEnvs: ['ETHERSCAN_API_KEY'], chainId: '137' },
+      { apiBase: 'https://api.polygonscan.com/api', apiKeyEnvs: ['POLYGONSCAN_API_KEY', 'ETHERSCAN_API_KEY'] },
+    ],
   },
   kava: {
     name: 'Kavascan',
-    apiBase: 'https://api.kavascan.com/api',
-    apiKeyEnv: 'KAVASCAN_API_KEY',
+    endpoints: [
+      { apiBase: 'https://api.kavascan.com/api', apiKeyEnvs: ['KAVASCAN_API_KEY'] },
+    ],
   },
 };
 
@@ -37,7 +41,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
   }
 }
 
-function buildExplorerUrl(explorer, address, apiKey) {
+function buildExplorerUrl(endpoint, address, apiKey) {
   const params = new URLSearchParams({
     module: 'contract',
     action: 'getsourcecode',
@@ -45,29 +49,55 @@ function buildExplorerUrl(explorer, address, apiKey) {
     apikey: apiKey,
   });
 
-  if (explorer.chainId) {
-    params.set('chainid', explorer.chainId);
+  if (endpoint.chainId) {
+    params.set('chainid', endpoint.chainId);
   }
 
-  return `${explorer.apiBase}?${params.toString()}`;
+  return `${endpoint.apiBase}?${params.toString()}`;
 }
 
 async function getContractSource(address, network = 'ethereum', depth = 0) {
   const explorer = EXPLORER_CONFIG[network] || EXPLORER_CONFIG.ethereum;
-  const apiKey = process.env[explorer.apiKeyEnv];
+  let json = null;
+  let lastNetworkError = null;
+  const missingKeyErrors = [];
 
-  if (!apiKey) {
-    throw new Error(`Missing required API key: ${explorer.apiKeyEnv}`);
+  for (const endpoint of explorer.endpoints) {
+    const apiKeyEnv = endpoint.apiKeyEnvs.find((envName) => !!process.env[envName]);
+    const apiKey = apiKeyEnv ? process.env[apiKeyEnv] : '';
+
+    if (!apiKey) {
+      missingKeyErrors.push(...endpoint.apiKeyEnvs);
+      continue;
+    }
+
+    const url = buildExplorerUrl(endpoint, address, apiKey);
+    let response;
+    try {
+      response = await fetchWithTimeout(url, {}, 10000);
+    } catch (err) {
+      lastNetworkError = err;
+      continue;
+    }
+
+    if (!response.ok) {
+      throw new Error(`${explorer.name} returned HTTP ${response.status}`);
+    }
+
+    json = await response.json();
+    break;
   }
 
-  const url = buildExplorerUrl(explorer, address, apiKey);
-  const response = await fetchWithTimeout(url, {}, 10000);
-
-  if (!response.ok) {
-    throw new Error(`${explorer.name} returned HTTP ${response.status}`);
+  if (!json) {
+    const uniqueMissingKeys = [...new Set(missingKeyErrors)];
+    if (uniqueMissingKeys.length > 0) {
+      throw new Error(`Missing required API key: ${uniqueMissingKeys.join(' or ')}`);
+    }
+    if (lastNetworkError) {
+      throw new Error(`${explorer.name} request failed: ${lastNetworkError.message || 'Network error'}`);
+    }
+    throw new Error(`${explorer.name} request failed`);
   }
-
-  const json = await response.json();
 
   if (json.status !== '1') {
     // Distinguish API-level errors (rate limit, bad key, deprecated endpoint, …) from "contract not found"
