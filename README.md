@@ -32,8 +32,6 @@ If your verification provider asks for a `<meta ...>` tag in `<head>`, set these
 
 The app will render this tag in `pages/_document.js`, so crawlers can read it directly from the initial HTML response.
 
-For deployment debugging, call `GET /api/verification` to check whether the verification meta tag is configured. The endpoint returns `configured` and `metaName` (but never returns the token content).
-
 
 
 
