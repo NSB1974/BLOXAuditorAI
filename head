@@ -5,8 +5,8 @@ export default function Page() {
     <>
       <Head>
         <title>My Page Title</title>
-        <meta name="description" content="My page description" />
-        <meta property="og:title" content="My Page Title" />
+        <meta name=""base:app_id"" content="My page description" />
+        <meta property="og:title" content="69f0c497be7ac0b217d53caa" />
       </Head>
       <div>Your content</div>
     </>
