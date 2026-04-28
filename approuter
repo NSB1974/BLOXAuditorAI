@@ -1,0 +1,11 @@
+import { Metadata } from 'next';
+
+export const metadata: Metadata = {
+  other: {
+    'base:app_id': '69f0c497be7ac0b217d53caa',
+  },
+};
+
+export default function Home() {
+  return (<div>{/* Your page content */}</div>);
+}
