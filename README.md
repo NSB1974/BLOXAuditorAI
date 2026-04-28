@@ -23,6 +23,14 @@ To install Metagoblins Scribble AI, follow these simple steps:
 
 # USE YOUR OWN IMAGES #
 
+## Site verification meta tag
+
+If your verification provider asks for a `<meta ...>` tag in `<head>`, set these deployment variables:
+
+- `NEXT_PUBLIC_SITE_VERIFICATION_NAME` (for example `google-site-verification`)
+- `NEXT_PUBLIC_SITE_VERIFICATION_CONTENT` (the verification token value)
+
+The app will render this tag in `pages/_document.js`, so crawlers can read it directly from the initial HTML response.
 
 
 
