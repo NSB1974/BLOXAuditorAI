@@ -19,7 +19,7 @@ To install BloxAuditorAI, follow these simple steps:
 
 1. Clone this repository
 2. Install the required dependencies using `npm install` or `yarn`.
-3. Copy `.env.example` to `.env` and fill in your API keys: `cp .env.example .env`
+3. Copy `.env.local.example` to `.env.local` and fill in your API keys: `cp .env.local.example .env.local`
 4. Run the development server using `yarn run dev` or `npm run dev`.
 
 # USE YOUR OWN IMAGES #
