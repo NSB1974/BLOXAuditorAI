@@ -10,6 +10,11 @@ const NETWORKS = [
 
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
+// Addresses excluded from auditing (e.g. well-known test tokens)
+const BLOCKED_ADDRESSES = new Set([
+  '0x514910771AF9Ca656af840dff83E8264EcF986CA',
+]);
+
 async function fetchAuditWithRetry(payload, attempts = 2) {
   let lastError;
 
@@ -35,65 +40,343 @@ async function fetchAuditWithRetry(payload, attempts = 2) {
   throw lastError || new Error('Failed to contact audit API');
 }
 
+// ── Markdown renderer ────────────────────────────────────────────────────────
+
+function getSeverityClass(word) {
+  const w = word.toLowerCase();
+  if (w === 'critical' || w === 'high')          return 'bg-red-900 text-red-300 border border-red-700';
+  if (w === 'medium')                             return 'bg-yellow-900 text-yellow-300 border border-yellow-700';
+  if (w === 'low')                                return 'bg-blue-900 text-blue-300 border border-blue-700';
+  if (w === 'informational' || w === 'info')      return 'bg-gray-800 text-gray-300 border border-gray-600';
+  return null;
+}
+
+function parseInline(text, keyPrefix) {
+  const segments = [];
+  let remaining = text;
+  let idx = 0;
+
+  while (remaining.length > 0) {
+    const boldIdx  = remaining.indexOf('**');
+    const codeIdx  = remaining.indexOf('`');
+
+    const earliest = [
+      boldIdx  >= 0 ? { type: 'bold', pos: boldIdx  } : null,
+      codeIdx  >= 0 ? { type: 'code', pos: codeIdx  } : null,
+    ]
+      .filter(Boolean)
+      .sort((a, b) => a.pos - b.pos)[0];
+
+    if (!earliest) {
+      segments.push(<span key={`${keyPrefix}-t${idx++}`}>{remaining}</span>);
+      break;
+    }
+
+    if (earliest.pos > 0) {
+      segments.push(<span key={`${keyPrefix}-t${idx++}`}>{remaining.slice(0, earliest.pos)}</span>);
+    }
+
+    if (earliest.type === 'bold') {
+      const end = remaining.indexOf('**', earliest.pos + 2);
+      if (end === -1) {
+        segments.push(<span key={`${keyPrefix}-t${idx++}`}>{remaining}</span>);
+        break;
+      }
+      const inner = remaining.slice(earliest.pos + 2, end);
+      const sevClass = getSeverityClass(inner.trim());
+      segments.push(
+        sevClass
+          ? <span key={`${keyPrefix}-b${idx++}`} className={`inline-block text-xs font-bold px-2 py-0.5 rounded-full ${sevClass}`}>{inner}</span>
+          : <strong key={`${keyPrefix}-b${idx++}`} className="font-bold text-white">{inner}</strong>
+      );
+      remaining = remaining.slice(end + 2);
+    } else {
+      const end = remaining.indexOf('`', earliest.pos + 1);
+      if (end === -1) {
+        segments.push(<span key={`${keyPrefix}-t${idx++}`}>{remaining}</span>);
+        break;
+      }
+      const inner = remaining.slice(earliest.pos + 1, end);
+      segments.push(
+        <code key={`${keyPrefix}-c${idx++}`} className="bg-blue-950 border border-blue-800 rounded px-1 font-mono text-xs text-blue-200">{inner}</code>
+      );
+      remaining = remaining.slice(end + 1);
+    }
+  }
+
+  return segments;
+}
+
+function renderMarkdown(markdown) {
+  const lines = markdown.split('\n');
+  const elements = [];
+  let i = 0;
+  let key = 0;
+
+  while (i < lines.length) {
+    const line = lines[i];
+
+    // Fenced code block
+    if (line.startsWith('```')) {
+      const codeLines = [];
+      i++;
+      while (i < lines.length && !lines[i].startsWith('```')) {
+        codeLines.push(lines[i]);
+        i++;
+      }
+      i++; // closing ```
+      elements.push(
+        <pre key={key++} className="bg-blue-950 border border-blue-800 rounded-xl p-4 my-3 overflow-x-auto text-xs text-blue-200 font-mono whitespace-pre-wrap">
+          {codeLines.join('\n')}
+        </pre>
+      );
+      continue;
+    }
+
+    // H4
+    if (line.startsWith('#### ')) {
+      const text = line.slice(5);
+      elements.push(
+        <h4 key={key++} className="text-indigo-300 font-semibold text-base mt-5 mb-1">
+          {parseInline(text, `h4-${key}`)}
+        </h4>
+      );
+      i++;
+      continue;
+    }
+
+    // H3
+    if (line.startsWith('### ')) {
+      const text = line.slice(4);
+      elements.push(
+        <h3 key={key++} className="text-blue-400 font-bold text-lg mt-7 mb-2 border-b border-blue-800 pb-1">
+          {parseInline(text, `h3-${key}`)}
+        </h3>
+      );
+      i++;
+      continue;
+    }
+
+    // H2
+    if (line.startsWith('## ')) {
+      const text = line.slice(3);
+      elements.push(
+        <h2 key={key++} className="text-blue-300 font-bold text-xl mt-8 mb-2 border-b border-blue-700 pb-1">
+          {parseInline(text, `h2-${key}`)}
+        </h2>
+      );
+      i++;
+      continue;
+    }
+
+    // H1
+    if (line.startsWith('# ')) {
+      const text = line.slice(2);
+      elements.push(
+        <h1 key={key++} className="text-blue-200 font-extrabold text-2xl mt-8 mb-3">
+          {parseInline(text, `h1-${key}`)}
+        </h1>
+      );
+      i++;
+      continue;
+    }
+
+    // Table
+    if (line.startsWith('|')) {
+      const tableLines = [];
+      while (i < lines.length && lines[i].startsWith('|')) {
+        tableLines.push(lines[i]);
+        i++;
+      }
+      if (tableLines.length >= 2) {
+        const headerCells = tableLines[0].split('|').filter(c => c.trim()).map(c => c.trim());
+        const bodyRows = tableLines.slice(2).map(row =>
+          row.split('|').filter(c => c.trim()).map(c => c.trim())
+        );
+        elements.push(
+          <div key={key++} className="overflow-x-auto my-4 rounded-xl border border-blue-800">
+            <table className="w-full text-sm border-collapse">
+              <thead>
+                <tr className="bg-blue-900 bg-opacity-70">
+                  {headerCells.map((cell, ci) => (
+                    <th key={ci} className="px-4 py-2 text-left text-blue-200 font-semibold border-b border-blue-700">
+                      {parseInline(cell, `th-${key}-${ci}`)}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {bodyRows.map((row, ri) => (
+                  <tr key={ri} className="border-b border-blue-900 hover:bg-blue-900 hover:bg-opacity-20">
+                    {row.map((cell, ci) => (
+                      <td key={ci} className="px-4 py-2 text-blue-100 border-r border-blue-900 last:border-r-0">
+                        {parseInline(cell, `td-${key}-${ri}-${ci}`)}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      }
+      continue;
+    }
+
+    // Unordered list
+    if (/^[-*] /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^[-*] /.test(lines[i])) {
+        items.push(lines[i].slice(2));
+        i++;
+      }
+      elements.push(
+        <ul key={key++} className="list-disc list-inside space-y-1 my-2 ml-3 text-blue-100">
+          {items.map((item, li) => (
+            <li key={li}>{parseInline(item, `ul-${key}-${li}`)}</li>
+          ))}
+        </ul>
+      );
+      continue;
+    }
+
+    // Ordered list
+    if (/^\d+\. /.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\d+\. /.test(lines[i])) {
+        items.push(lines[i].replace(/^\d+\. /, ''));
+        i++;
+      }
+      elements.push(
+        <ol key={key++} className="list-decimal list-inside space-y-1 my-2 ml-3 text-blue-100">
+          {items.map((item, li) => (
+            <li key={li}>{parseInline(item, `ol-${key}-${li}`)}</li>
+          ))}
+        </ol>
+      );
+      continue;
+    }
+
+    // Horizontal rule
+    if (/^---+$/.test(line.trim())) {
+      elements.push(<hr key={key++} className="border-blue-800 my-5" />);
+      i++;
+      continue;
+    }
+
+    // Non-empty paragraph
+    if (line.trim()) {
+      elements.push(
+        <p key={key++} className="text-blue-100 leading-relaxed my-1.5">
+          {parseInline(line, `p-${key}`)}
+        </p>
+      );
+    }
+
+    i++;
+  }
+
+  return elements;
+}
+
+// ── AuditReport display component ───────────────────────────────────────────
+
+function AuditReport({ markdown, address, network, onClear }) {
+  return (
+    <div className="my-4 w-full max-w-3xl rounded-2xl overflow-hidden"
+      style={{ border: '1.5px solid #3b82f6', boxShadow: '0 0 32px rgba(59,130,246,0.15)' }}>
+
+      {/* Report header */}
+      <div className="flex items-center gap-3 px-6 py-4"
+        style={{ background: 'linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%)', borderBottom: '1.5px solid #3b82f6' }}>
+        <div className="relative w-9 h-9 flex-shrink-0">
+          <Image
+            src="/bloxology-logo.svg"
+            alt="Bloxology"
+            fill
+            style={{ objectFit: 'contain' }}
+          />
+        </div>
+        <div className="flex flex-col min-w-0">
+          <span
+            className="text-lg font-extrabold tracking-widest text-transparent bg-clip-text leading-tight"
+            style={{ backgroundImage: 'linear-gradient(90deg, #60A5FA, #818CF8)' }}
+          >
+            AUDIT REPORT
+          </span>
+          <span className="font-mono text-xs text-blue-400 truncate">
+            {address} &middot; {network.charAt(0).toUpperCase() + network.slice(1)}
+          </span>
+        </div>
+      </div>
+
+      {/* Report body */}
+      <div className="px-6 py-5 bg-blue-950 bg-opacity-60 backdrop-blur-lg">
+        {renderMarkdown(markdown)}
+      </div>
+
+      {/* Report footer */}
+      <div className="flex items-center justify-between px-6 py-3"
+        style={{ background: '#0f172a', borderTop: '1px solid #1e3a5f' }}>
+        <span className="text-xs text-blue-500">
+          Generated by Bloxology AI · {new Date().toLocaleString()}
+        </span>
+        <button
+          onClick={onClear}
+          className="text-xs font-semibold text-indigo-400 hover:text-white transition px-3 py-1
+            rounded-lg border border-indigo-700 hover:border-indigo-400 hover:bg-indigo-900"
+        >
+          Clear Report
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Main AuditButton component ───────────────────────────────────────────────
+
 function AuditButton() {
-  const chatBoxBodyRef = useRef(null);
   const inputFieldRef = useRef(null);
-  const submitBtnRef = useRef(null);
   const [selectedNetwork, setSelectedNetwork] = useState(NETWORKS[0]);
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [auditReport, setAuditReport] = useState(null);   // { markdown, address, network }
+  const [auditError, setAuditError] = useState(null);
 
   const clearInputField = () => {
     inputFieldRef.current.value = '';
   };
 
-  function clearChatContainer() {
-    chatBoxBodyRef.current.innerHTML = '';
-  }
-
   const sendMessage = async () => {
-    const chatBoxBody = chatBoxBodyRef.current;
     const inputField = inputFieldRef.current;
-    const submitBtn = submitBtnRef.current;
-
     const message = inputField.value.trim();
 
-    // Remove previous error messages
-    const previousError = chatBoxBody.querySelector('.error');
-    if (previousError) {
-      previousError.remove();
-    }
+    setAuditError(null);
 
     if (!message || !ETH_ADDRESS_RE.test(message)) {
-      const errorMessage = document.createElement('div');
-      errorMessage.classList.add('error');
-      errorMessage.style.color = '#F87171';
-      errorMessage.innerHTML = '<p>Please enter a valid contract address for the selected network (0x followed by 40 hex characters).</p>';
-      chatBoxBody.appendChild(errorMessage);
-      chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
+      setAuditError('Please enter a valid contract address for the selected network (0x followed by 40 hex characters).');
       return;
     }
 
-    submitBtn.textContent = 'Fetching source…';
-    submitBtn.disabled = true;
-
-    // Remove previous response
-    const previousResponse = chatBoxBody.querySelector('.response');
-    if (previousResponse) {
-      previousResponse.remove();
+    // Block known test / excluded tokens
+    if (BLOCKED_ADDRESSES.has(message)) {
+      setAuditError('This contract address is not available for auditing.');
+      return;
     }
+
+    setIsLoading(true);
+    setAuditReport(null);
 
     try {
       const response = await fetchAuditWithRetry({ message, network: selectedNetwork.id });
 
       if (!response.ok) {
-        // Try to read the structured error message from the API first
         let apiError = null;
         try {
           const errData = await response.json();
           if (errData && errData.error) apiError = errData.error;
         } catch { /* ignore parse errors */ }
 
-        // Provide status-specific fallback messages where the API message is absent
         let errorText;
         if (apiError) {
           errorText = apiError;
@@ -111,48 +394,20 @@ function AuditButton() {
           errorText = `Request failed (HTTP ${response.status}).`;
         }
 
-        submitBtn.textContent = 'Audit';
-        submitBtn.disabled = false;
-        const errEl = document.createElement('p');
-        errEl.style.color = '#F87171';
-        errEl.textContent = errorText;
-        chatBoxBody.innerHTML = '';
-        chatBoxBody.appendChild(errEl);
+        setAuditError(errorText);
         return;
       }
 
       const data = await response.json();
-      submitBtn.textContent = 'Audit';
-      submitBtn.disabled = false;
-      chatBoxBody.classList.add('information');
-
-      const heading = document.createElement('h3');
-      heading.style.cssText = 'color:#60A5FA;font-weight:700;font-size:1.1rem;margin-bottom:0.75rem;';
-      heading.textContent = 'Audit Report';
-
-      const body = document.createElement('p');
-      body.style.lineHeight = '1.7';
-      body.textContent = data.message;
-
-      chatBoxBody.innerHTML = '';
-      chatBoxBody.appendChild(heading);
-      chatBoxBody.appendChild(body);
-      chatBoxBody.scrollTop = chatBoxBody.scrollHeight;
+      setAuditReport({ markdown: data.message, address: message, network: selectedNetwork.id });
     } catch (e) {
       console.error('Audit request failed:', e);
-      submitBtn.textContent = 'Audit';
-      submitBtn.disabled = false;
-
-      // TypeError means fetch itself failed — server was never reached (network down, DNS failure, etc.)
       const errorText = e instanceof TypeError
         ? 'Could not reach the server. In Chrome, disable ad-block/privacy extensions for this site, then hard refresh and try again.'
         : 'An unexpected error occurred while fetching the audit. Please try again.';
-
-      const errEl = document.createElement('p');
-      errEl.style.color = '#F87171';
-      errEl.textContent = errorText;
-      chatBoxBody.innerHTML = '';
-      chatBoxBody.appendChild(errEl);
+      setAuditError(errorText);
+    } finally {
+      setIsLoading(false);
     }
   };
 
@@ -263,9 +518,9 @@ function AuditButton() {
             className="w-24 h-11 sm:w-32 font-bold rounded-xl backdrop-blur-lg
               hover:brightness-125 transition disabled:opacity-50"
             onClick={sendMessage}
-            ref={submitBtnRef}
+            disabled={isLoading}
           >
-            Audit
+            {isLoading ? 'Auditing…' : 'Audit'}
           </button>
 
           <button
@@ -279,24 +534,32 @@ function AuditButton() {
           </button>
         </div>
 
-        {/* Report box */}
-        <div
-          id="chat-container"
-          ref={chatBoxBodyRef}
-          className="my-4 border border-blue-700 h-auto w-full max-w-3xl
-            bg-blue-950 bg-opacity-60 backdrop-blur-lg rounded-2xl p-6 text-blue-100
-            min-h-[3rem] leading-relaxed"
-        ></div>
+        {/* Error message */}
+        {auditError && (
+          <p className="text-red-400 text-sm mb-4 text-center max-w-lg">{auditError}</p>
+        )}
 
-        <button
-          id="clear-chat-button"
-          className="w-40 h-10 my-4 font-semibold rounded-xl border border-indigo-500
-            text-indigo-300 bg-indigo-950 bg-opacity-60 backdrop-blur-lg
-            hover:bg-indigo-700 hover:text-white transition"
-          onClick={clearChatContainer}
-        >
-          Clear Report
-        </button>
+        {/* Loading indicator */}
+        {isLoading && (
+          <div className="my-4 w-full max-w-3xl rounded-2xl px-6 py-8 flex items-center justify-center gap-3"
+            style={{ border: '1.5px solid #3b82f6', background: 'rgba(15,23,42,0.7)' }}>
+            <svg className="animate-spin w-5 h-5 text-blue-400" fill="none" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            <span className="text-blue-300 font-medium">Fetching and auditing contract source…</span>
+          </div>
+        )}
+
+        {/* Audit report */}
+        {auditReport && (
+          <AuditReport
+            markdown={auditReport.markdown}
+            address={auditReport.address}
+            network={auditReport.network}
+            onClear={() => setAuditReport(null)}
+          />
+        )}
 
         <div className="p-10" />
 

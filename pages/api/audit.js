@@ -1,5 +1,10 @@
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const MAX_PROXY_DEPTH = 1;
+
+// Addresses excluded from auditing (e.g. well-known test tokens)
+const BLOCKED_ADDRESSES = new Set([
+  '0x514910771AF9Ca656af840dff83E8264EcF986CA',
+]);
 const DEFAULT_TIMEOUT_MS = 15000;
 
 const EXPLORER_CONFIG = {
@@ -338,6 +343,10 @@ export default async function handler(req, res) {
 
   if (!ETH_ADDRESS_RE.test(address)) {
     return res.status(400).json({ error: 'Invalid Ethereum contract address' });
+  }
+
+  if (BLOCKED_ADDRESSES.has(address)) {
+    return res.status(403).json({ error: 'This contract address is not available for auditing.' });
   }
 
   try {
