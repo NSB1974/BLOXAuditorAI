@@ -1,3 +1,4 @@
+domain+https://blox-auditor-ai.vercel.app
 import { Metadata } from 'next';
 
 export const metadata: Metadata = {
