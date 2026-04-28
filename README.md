@@ -1,10 +1,10 @@
 BloxAuditorAI
 
-Contract Guardian AI is a Solidity Smart Contract Auditor powered by AI using 0X0-Api that analyzes and audits the code of smart contracts, detects errors and vulnerabilities, and generates through reports for safe and error-free smart contracts.
+Bloxology Contract Audit AI is a Solidity Smart Contract Auditor powered by AI using Console X AI that analyzes and audits the code of smart contracts, detects errors and vulnerabilities, and generates through reports for safe and error-free smart contracts.
 
 # Technologies Used:
 
-0x Api
+Console X AI
 
 Next.js server-side API routes: The perfect solution for interacting with the  API, delivering lightning-fast results.
 
@@ -15,7 +15,7 @@ Tailwind CSS: Framework for stunning, responsive designs that elevate your app t
 
 # Installation
 
-To install Metagoblins Scribble AI, follow these simple steps:
+To install ConsoleXAI AI, follow these simple steps:
 
 1. Clone this repository
 2. Install the required dependencies using `npm install or yarn`.
