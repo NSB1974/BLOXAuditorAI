@@ -1,0 +1,12 @@
+import Head from 'next/head';
+
+export default function Home() {
+  return (
+    <>
+      <Head>
+        <meta name="base:app_id" content="69f0c497be7ac0b217d53caa" />
+      </Head>
+      {/* Your page content */}
+    </>
+  );
+}
