@@ -363,22 +363,29 @@ export default async function handler(req, res) {
 
     const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
 
-    const upstream = await fetchWithTimeout(
-      'https://api.x.ai/v1/chat/completions',
-      {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${xaiApiKey}`,
-          'Content-Type': 'application/json',
+    let upstream;
+    try {
+      upstream = await fetchWithTimeout(
+        'https://api.x.ai/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${xaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'grok-3-mini',
+            messages: [{ role: 'user', content: prompt }],
+          }),
         },
-        body: JSON.stringify({
-          model: 'grok-3-mini',
-          messages: [{ role: 'user', content: prompt }],
-        }),
-      },
-      55000,
-      1
-    );
+        55000,
+        1
+      );
+    } catch (fetchErr) {
+      const err = new Error('The AI audit service is currently unreachable. Please try again later.');
+      err.code = 'UPSTREAM_UNREACHABLE';
+      throw err;
+    }
 
     let xaiData;
     try {
@@ -419,6 +426,9 @@ export default async function handler(req, res) {
       return res.status(500).json({ error: 'Server configuration error: the block explorer API key is missing or invalid.' });
     }
     if (e.code === 'NETWORK_ERROR') {
+      return res.status(503).json({ error: e.message });
+    }
+    if (e.code === 'UPSTREAM_UNREACHABLE') {
       return res.status(503).json({ error: e.message });
     }
     const msg = typeof e.message === 'string' ? e.message : '';
