@@ -1,5 +1,7 @@
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const MAX_PROXY_DEPTH = 1;
+const BASE_CHAIN_ID = 8453;
+const TRANSFER_EVENT_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef';
 
 // Addresses excluded from auditing (e.g. well-known test tokens)
 const BLOCKED_ADDRESSES = new Set([
@@ -326,6 +328,108 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
   return { sourceCode: SourceCode, contractName: ContractName || 'Unknown' };
 }
 
+function paymentError(res, status, code, message, details = {}) {
+  return res.status(status).json({
+    error: {
+      code,
+      message,
+      details,
+    },
+  });
+}
+
+async function verifyBasePayment(paymentReceipt) {
+  const tokenAddress = process.env.BLOXOLOGY_TOKEN_ADDRESS;
+  const treasuryAddress = process.env.AUDIT_TREASURY_ADDRESS;
+  const baseRpcUrl = process.env.BASE_RPC_URL;
+  const requiredAmountRaw = process.env.AUDIT_REQUIRED_TOKEN_AMOUNT;
+
+  if (!tokenAddress || !treasuryAddress || !baseRpcUrl || !requiredAmountRaw) {
+    const err = new Error('Base payment verification is not configured on the server.');
+    err.code = 'PAYMENT_CONFIG_MISSING';
+    throw err;
+  }
+
+  if (!paymentReceipt || typeof paymentReceipt !== 'object') {
+    return { ok: false, status: 402, code: 'PAYMENT_REQUIRED', message: 'Payment receipt is required for Base audits.' };
+  }
+
+  const { txHash, payer, amount, token, network } = paymentReceipt;
+  if (!txHash || !payer || !amount || !token || network !== 'base') {
+    return { ok: false, status: 402, code: 'PAYMENT_RECEIPT_INVALID', message: 'Payment receipt is missing required fields.' };
+  }
+
+  let rpcId = 1;
+  const rpcCall = async (method, params = []) => {
+    const response = await fetch(baseRpcUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: rpcId++,
+        method,
+        params,
+      }),
+    });
+    const json = await response.json();
+    if (json?.error) {
+      throw new Error(`Base RPC error (${method}): ${json.error.message || 'Unknown error'}`);
+    }
+    return json?.result;
+  };
+
+  const [tx, receipt, chainIdHex] = await Promise.all([
+    rpcCall('eth_getTransactionByHash', [txHash]),
+    rpcCall('eth_getTransactionReceipt', [txHash]),
+    rpcCall('eth_chainId', []),
+  ]);
+
+  if (!tx || !receipt || receipt.status !== '0x1') {
+    return { ok: false, status: 402, code: 'PAYMENT_NOT_CONFIRMED', message: 'Payment transaction is missing or not confirmed.' };
+  }
+
+  const chainId = Number.parseInt(chainIdHex, 16);
+  if (chainId !== BASE_CHAIN_ID) {
+    return { ok: false, status: 403, code: 'PAYMENT_NETWORK_INVALID', message: 'Server is not connected to Base mainnet.' };
+  }
+
+  if (tx.to?.toLowerCase() !== tokenAddress.toLowerCase()) {
+    return { ok: false, status: 402, code: 'PAYMENT_TOKEN_MISMATCH', message: 'Payment transaction was not sent to the configured token contract.' };
+  }
+
+  const requiredAmount = BigInt(requiredAmountRaw);
+  const clientAmount = BigInt(amount);
+  if (clientAmount < requiredAmount) {
+    return { ok: false, status: 402, code: 'PAYMENT_AMOUNT_TOO_LOW', message: 'Client-reported amount is below the required threshold.' };
+  }
+
+  const normalizedToken = String(token).toLowerCase();
+  if (normalizedToken !== tokenAddress.toLowerCase()) {
+    return { ok: false, status: 402, code: 'PAYMENT_TOKEN_INVALID', message: 'Client-reported token does not match configured payment token.' };
+  }
+
+  const payerLower = String(payer).toLowerCase();
+  const treasuryLower = treasuryAddress.toLowerCase();
+  const tokenLower = tokenAddress.toLowerCase();
+
+  const matchingTransfer = (receipt.logs || []).find((log) => {
+    if (String(log.address).toLowerCase() !== tokenLower) return false;
+    if (!Array.isArray(log.topics) || log.topics.length < 3) return false;
+    if (String(log.topics[0]).toLowerCase() !== TRANSFER_EVENT_TOPIC) return false;
+
+    const from = `0x${String(log.topics[1]).slice(26)}`.toLowerCase();
+    const to = `0x${String(log.topics[2]).slice(26)}`.toLowerCase();
+    const value = BigInt(log.data || '0x0');
+    return from === payerLower && to === treasuryLower && value >= requiredAmount;
+  });
+
+  if (!matchingTransfer) {
+    return { ok: false, status: 402, code: 'PAYMENT_TRANSFER_NOT_FOUND', message: 'No matching ERC-20 transfer to treasury was found for the required amount.' };
+  }
+
+  return { ok: true };
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
@@ -350,6 +454,13 @@ export default async function handler(req, res) {
   }
 
   try {
+    if (network === 'base') {
+      const verification = await verifyBasePayment(req.body?.paymentReceipt);
+      if (!verification.ok) {
+        return paymentError(res, verification.status, verification.code, verification.message);
+      }
+    }
+
     // Step 1: Fetch contract source code from Etherscan
     const contractData = await getSourceWithFallbacks(address, network);
 
@@ -364,7 +475,7 @@ export default async function handler(req, res) {
     const safeName = contractName.replace(/[^\w\s.-]/g, '').slice(0, 100);
     const safeAddress = address; // already validated as /^0x[a-fA-F0-9]{40}$/
 
-    // Step 2: Send source code to xAI Grok for audit
+    // Step 2: Send source code to AI service for audit
     const xaiApiKey = process.env.CONSOLEXAI_API_KEY;
     if (!xaiApiKey) {
       return res.status(500).json({ error: 'Server configuration error: CONSOLEXAI_API_KEY is not set.' });
@@ -375,7 +486,7 @@ export default async function handler(req, res) {
     let upstream;
     try {
       upstream = await fetchWithTimeout(
-        'https://api.x.ai/v1/chat/completions',
+        'https://api.0x0.ai/message',
         {
           method: 'POST',
           headers: {
@@ -383,8 +494,7 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            model: 'grok-3-mini',
-            messages: [{ role: 'user', content: prompt }],
+            message: prompt,
           }),
         },
         55000,
@@ -411,7 +521,7 @@ export default async function handler(req, res) {
       return res.status(upstream.status).json({ error: `Audit service error: ${detail}` });
     }
 
-    const auditText = xaiData?.choices?.[0]?.message?.content;
+    const auditText = xaiData?.message || xaiData?.choices?.[0]?.message?.content;
     if (!auditText) {
       return res.status(502).json({ error: 'Audit service returned an unexpected response format.' });
     }
@@ -439,6 +549,9 @@ export default async function handler(req, res) {
     }
     if (e.code === 'UPSTREAM_UNREACHABLE') {
       return res.status(503).json({ error: e.message });
+    }
+    if (e.code === 'PAYMENT_CONFIG_MISSING') {
+      return paymentError(res, 500, e.code, e.message);
     }
     const msg = typeof e.message === 'string' ? e.message : '';
     if (msg.toLowerCase().includes('fetch failed') || msg.toLowerCase().includes('enotfound') || msg.toLowerCase().includes('connect')) {
