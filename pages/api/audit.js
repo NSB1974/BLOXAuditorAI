@@ -98,8 +98,6 @@ async function fetchSourceFromBlockscout(address, network) {
 }
 
 async function getSourceWithFallbacks(address, network, depth = 0) {
-  let swallowedExplorerError = null;
-
   try {
     const explorerData = await getContractSource(address, network, depth);
     if (explorerData) {
@@ -110,8 +108,6 @@ async function getSourceWithFallbacks(address, network, depth = 0) {
     if (!['CHAIN_PLAN_RESTRICTED', 'INVALID_API_KEY'].includes(err?.code)) {
       throw err;
     }
-    // Preserve the error so we can rethrow it if all fallbacks also fail.
-    swallowedExplorerError = err;
   }
 
   try {
@@ -129,22 +125,17 @@ async function getSourceWithFallbacks(address, network, depth = 0) {
       return blockscoutData;
     }
   } catch {
-    // All fallbacks exhausted.
-  }
-
-  // If a specific explorer error was swallowed and all fallbacks failed, surface it
-  // so the caller can return the appropriate HTTP status (403, 500, etc.).
-  if (swallowedExplorerError) {
-    throw swallowedExplorerError;
+    // Ignore fallback failures and return null.
   }
 
   return null;
 }
 
 async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_MS, attempts = 2) {
+  const normalizedAttempts = Math.max(1, Math.trunc(attempts) || 1);
   let lastError = null;
 
-  for (let i = 0; i < attempts; i += 1) {
+  for (let i = 0; i < normalizedAttempts; i += 1) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -152,7 +143,7 @@ async function fetchWithTimeout(url, options = {}, timeoutMs = DEFAULT_TIMEOUT_M
       return await fetch(url, { ...options, signal: controller.signal });
     } catch (err) {
       lastError = err;
-      if (i < attempts - 1) {
+      if (i < normalizedAttempts - 1) {
         continue;
       }
       throw err;
@@ -187,6 +178,22 @@ function buildExplorerUrl(endpoint, address, apiKey) {
   }
 
   return `${endpoint.apiBase}?${params.toString()}`;
+}
+
+function formatNetworkErrorMessage(explorerName, err) {
+  const details = String(err?.message || '').toLowerCase();
+
+  if (details.includes('fetch failed') || details.includes('connect tunnel failed')) {
+    return `${explorerName} request failed due to outbound network restrictions (proxy/firewall).`;
+  }
+  if (details.includes('enotfound') || details.includes('eai_again')) {
+    return `${explorerName} request failed due to DNS/network resolution issues.`;
+  }
+  if (details.includes('timed out') || details.includes('abort')) {
+    return `${explorerName} request timed out.`;
+  }
+
+  return `${explorerName} request failed: ${err?.message || 'Network error'}`;
 }
 
 async function getContractSource(address, network = 'ethereum', depth = 0) {
@@ -249,7 +256,11 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
           detailMsg.includes('not available on free tier') ||
           detailMsg.includes('please upgrade your api plan')
         ) {
-          const err = new Error(`${explorer.name} access for this chain requires a paid Etherscan API plan.`);
+          const isEtherscanV2Endpoint = endpoint.apiBase === 'https://api.etherscan.io/v2/api';
+          const planRestrictionMessage = isEtherscanV2Endpoint
+            ? `Access to the Etherscan v2 multi-chain API${endpoint.chainId ? ` for chain ${endpoint.chainId}` : ''} requires a paid API plan.`
+            : `${explorer.name} API access via ${endpoint.apiBase} requires a paid API plan.`;
+          const err = new Error(planRestrictionMessage);
           err.code = 'CHAIN_PLAN_RESTRICTED';
           throw err;
         }
@@ -279,7 +290,9 @@ async function getContractSource(address, network = 'ethereum', depth = 0) {
     }
     if (lastNetworkError) {
       const reason = lastNetworkError?.cause?.code || lastNetworkError?.message || 'Network error';
-      throw new Error(`${explorer.name} request failed: ${reason}`);
+      const err = new Error(`${explorer.name} request failed: ${reason}`);
+      err.code = 'NETWORK_ERROR';
+      throw err;
     }
     throw new Error(`${explorer.name} request failed`);
   }
@@ -342,35 +355,63 @@ export default async function handler(req, res) {
     const safeName = contractName.replace(/[^\w\s.-]/g, '').slice(0, 100);
     const safeAddress = address; // already validated as /^0x[a-fA-F0-9]{40}$/
 
-    // Step 2: Send source code to 0x0.ai for audit
+    // Step 2: Send source code to xAI Grok for audit
+    const xaiApiKey = process.env.CONSOLEXAI_API_KEY;
+    if (!xaiApiKey) {
+      return res.status(500).json({ error: 'Server configuration error: CONSOLEXAI_API_KEY is not set.' });
+    }
+
     const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
 
-    const upstream = await fetchWithTimeout(
-      'https://api.0x0.ai/message',
-      {
-        method: 'POST',
-        headers: {
-          accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ message: prompt }),
-      },
-      30000,
-      2
-    );
-
-    let data;
+    let upstream;
     try {
-      data = await upstream.json();
+      upstream = await fetchWithTimeout(
+        'https://api.x.ai/v1/chat/completions',
+        {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${xaiApiKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'grok-3-mini',
+            messages: [{ role: 'user', content: prompt }],
+          }),
+        },
+        55000,
+        1
+      );
+    } catch (fetchErr) {
+      const err = new Error('The AI audit service is currently unreachable. Please try again later.');
+      err.code = 'UPSTREAM_UNREACHABLE';
+      throw err;
+    }
+
+    let xaiData;
+    try {
+      xaiData = await upstream.json();
     } catch {
       return res.status(upstream.status).json({ error: `Audit service returned HTTP ${upstream.status}` });
     }
 
-    return res.status(upstream.status).json(data);
+    if (!upstream.ok) {
+      const detail = xaiData?.error?.message || xaiData?.error || `HTTP ${upstream.status}`;
+      if (upstream.status === 401 || upstream.status === 403) {
+        return res.status(500).json({ error: 'Server configuration error: the AI API key is invalid or unauthorised.' });
+      }
+      return res.status(upstream.status).json({ error: `Audit service error: ${detail}` });
+    }
+
+    const auditText = xaiData?.choices?.[0]?.message?.content;
+    if (!auditText) {
+      return res.status(502).json({ error: 'Audit service returned an unexpected response format.' });
+    }
+
+    return res.status(200).json({ message: auditText });
   } catch (e) {
-    console.error('Audit request failed');
+    console.error('Audit request failed:', e.message);
     if (e.name === 'AbortError') {
-      return res.status(504).json({ error: 'Audit service timed out. Please try again.' });
+      return res.status(504).json({ error: 'Audit service timed out. The AI service may be experiencing high load. Please try again in a few moments.' });
     }
     if (e.code === 'RATE_LIMITED') {
       return res.status(429).json({ error: e.message });
@@ -379,11 +420,21 @@ export default async function handler(req, res) {
       return res.status(502).json({ error: `${e.message} Please contact support.` });
     }
     if (e.code === 'CHAIN_PLAN_RESTRICTED') {
-      return res.status(403).json({ error: `${e.message} If you are auditing Base, Etherscan may require a paid plan for chain ID 8453.` });
+      return res.status(403).json({ error: `${e.message} The selected network may require a paid or upgraded block explorer API plan for this request.` });
     }
     if (e.code === 'INVALID_API_KEY' || (typeof e.message === 'string' && e.message.includes('Missing required API key:'))) {
       return res.status(500).json({ error: 'Server configuration error: the block explorer API key is missing or invalid.' });
     }
-    return res.status(502).json({ error: e.message || 'Failed to process audit request' });
+    if (e.code === 'NETWORK_ERROR') {
+      return res.status(503).json({ error: e.message });
+    }
+    if (e.code === 'UPSTREAM_UNREACHABLE') {
+      return res.status(503).json({ error: e.message });
+    }
+    const msg = typeof e.message === 'string' ? e.message : '';
+    if (msg.toLowerCase().includes('fetch failed') || msg.toLowerCase().includes('enotfound') || msg.toLowerCase().includes('connect')) {
+      return res.status(503).json({ error: 'Could not reach the AI service. Please try again in a moment.' });
+    }
+    return res.status(502).json({ error: msg || 'Failed to process audit request' });
   }
 }

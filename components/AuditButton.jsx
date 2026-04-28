@@ -11,7 +11,6 @@ const NETWORKS = [
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 
 async function fetchAuditWithRetry(payload, attempts = 2) {
-  const RETRYABLE_STATUSES = new Set([502, 503, 504]);
   let lastError;
 
   for (let i = 0; i < attempts; i += 1) {
@@ -24,10 +23,6 @@ async function fetchAuditWithRetry(payload, attempts = 2) {
         },
         body: JSON.stringify(payload)
       });
-      if (RETRYABLE_STATUSES.has(response.status) && i < attempts - 1) {
-        await new Promise((resolve) => setTimeout(resolve, 500));
-        continue;
-      }
       return response;
     } catch (error) {
       lastError = error;
@@ -150,7 +145,7 @@ function AuditButton() {
 
       // TypeError means fetch itself failed — server was never reached (network down, DNS failure, etc.)
       const errorText = e instanceof TypeError
-        ? 'Could not reach the server. In Chrome, disable ad-block/privacy extensions, hard refresh, then open /api/diag to verify backend connectivity.'
+        ? 'Could not reach the server. In Chrome, disable ad-block/privacy extensions for this site, then hard refresh and try again.'
         : 'An unexpected error occurred while fetching the audit. Please try again.';
 
       const errEl = document.createElement('p');
