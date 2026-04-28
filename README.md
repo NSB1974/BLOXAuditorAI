@@ -15,7 +15,7 @@ Tailwind CSS: Framework for stunning, responsive designs that elevate your app t
 
 # Installation
 
-To install BLOXAuditorAI, follow these simple steps:
+To install BloxAuditorAI, follow these simple steps:
 
 1. Clone this repository
 2. Install the required dependencies using `npm install` or `yarn`.
