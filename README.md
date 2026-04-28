@@ -1,10 +1,10 @@
 BloxAuditorAI
 
-Contract Guardian AI is a Solidity Smart Contract Auditor powered by AI using 0X0-Api that analyzes and audits the code of smart contracts, detects errors and vulnerabilities, and generates through reports for safe and error-free smart contracts.
+Bloxology Contract Audit AI is a Solidity Smart Contract Auditor powered by AI using Console X AI that analyzes and audits the code of smart contracts, detects errors and vulnerabilities, and generates through reports for safe and error-free smart contracts.
 
 # Technologies Used:
 
-0x Api
+Console X AI
 
 Next.js server-side API routes: The perfect solution for interacting with the  API, delivering lightning-fast results.
 
@@ -15,7 +15,7 @@ Tailwind CSS: Framework for stunning, responsive designs that elevate your app t
 
 # Installation
 
-To install Metagoblins Scribble AI, follow these simple steps:
+To install ConsoleXAI AI, follow these simple steps:
 
 1. Clone this repository
 2. Install the required dependencies using `npm install or yarn`.
@@ -27,13 +27,10 @@ To install Metagoblins Scribble AI, follow these simple steps:
 
 If your verification provider asks for a `<meta ...>` tag in `<head>`, set these deployment variables:
 
-- `NEXT_PUBLIC_BASE_APP_ID` (for Base Developer App verification; defaults to the current app id in code)
 - `NEXT_PUBLIC_SITE_VERIFICATION_NAME` (for example `google-site-verification`)
 - `NEXT_PUBLIC_SITE_VERIFICATION_CONTENT` (the verification token value)
 
-The app renders Base metadata (`name` + `property` variants of `base:app_id`) in both `pages/_document.js` and `pages/index.js` so crawlers can read it from initial HTML on the homepage.
-
-For deployment debugging, call `GET /api/verification` to check whether Base and verification metadata are configured. The endpoint returns `baseAppId`, `hasBaseAppId`, `configured`, and `metaName` (but never returns the verification token content).
+The app will render this tag in `pages/_document.js`, so crawlers can read it directly from the initial HTML response.
 
 
 
