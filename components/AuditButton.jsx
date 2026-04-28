@@ -9,6 +9,7 @@ const NETWORKS = [
 ];
 
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
+const BASE_MAINNET_CHAIN_ID = 8453n;
 
 // Addresses excluded from auditing (e.g. well-known test tokens)
 const BLOCKED_ADDRESSES = new Set([
@@ -38,6 +39,78 @@ async function fetchAuditWithRetry(payload, attempts = 2) {
   }
 
   throw lastError || new Error('Failed to contact audit API');
+}
+
+async function payForBaseAudit() {
+  if (typeof window === 'undefined' || !window.ethereum) {
+    const err = new Error('Wallet not found. Please install MetaMask (or another EVM wallet) to pay on Base.');
+    err.code = 'WALLET_NOT_FOUND';
+    throw err;
+  }
+
+  const tokenAddress = process.env.NEXT_PUBLIC_BLOXOLOGY_TOKEN_ADDRESS;
+  const treasuryAddress = process.env.NEXT_PUBLIC_AUDIT_TREASURY_ADDRESS;
+  const amount = process.env.NEXT_PUBLIC_AUDIT_REQUIRED_TOKEN_AMOUNT;
+
+  if (!tokenAddress || !treasuryAddress || !amount) {
+    const err = new Error('Payment is not configured. Missing token, treasury, or amount environment variables.');
+    err.code = 'PAYMENT_CONFIG_MISSING';
+    throw err;
+  }
+
+  const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
+  const payer = Array.isArray(accounts) && accounts.length > 0 ? accounts[0] : null;
+  if (!payer) {
+    const err = new Error('Wallet connection failed. Please unlock your wallet and try again.');
+    err.code = 'WALLET_NOT_FOUND';
+    throw err;
+  }
+
+  const chainIdHex = await window.ethereum.request({ method: 'eth_chainId' });
+  const chainId = BigInt(chainIdHex);
+  if (chainId !== BASE_MAINNET_CHAIN_ID) {
+    const err = new Error('Wrong network. Please switch your wallet to Base Mainnet (chain ID 8453).');
+    err.code = 'WRONG_NETWORK';
+    throw err;
+  }
+
+  const amountHex = BigInt(amount).toString(16).padStart(64, '0');
+  const treasuryNoPrefix = treasuryAddress.toLowerCase().replace(/^0x/, '').padStart(64, '0');
+  const transferCallData = `0xa9059cbb${treasuryNoPrefix}${amountHex}`;
+
+  const txHash = await window.ethereum.request({
+    method: 'eth_sendTransaction',
+    params: [{
+      from: payer,
+      to: tokenAddress,
+      data: transferCallData,
+    }],
+  });
+
+  let minedReceipt = null;
+  for (let i = 0; i < 60; i += 1) {
+    minedReceipt = await window.ethereum.request({
+      method: 'eth_getTransactionReceipt',
+      params: [txHash],
+    });
+    if (minedReceipt?.status === '0x1') break;
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+  }
+
+  if (!minedReceipt || minedReceipt.status !== '0x1') {
+    const err = new Error('Payment transaction was not confirmed. Please wait for confirmation and retry.');
+    err.code = 'PAYMENT_NOT_CONFIRMED';
+    throw err;
+  }
+
+  return {
+    txHash,
+    payer,
+    amount,
+    token: tokenAddress,
+    network: 'base',
+    chainId: Number(chainId),
+  };
 }
 
 // ── Markdown renderer ────────────────────────────────────────────────────────
@@ -368,13 +441,20 @@ function AuditButton() {
     setAuditReport(null);
 
     try {
-      const response = await fetchAuditWithRetry({ message, network: selectedNetwork.id });
+      let paymentReceipt = null;
+      if (selectedNetwork.id === 'base') {
+        paymentReceipt = await payForBaseAudit();
+      }
+
+      const response = await fetchAuditWithRetry({ message, network: selectedNetwork.id, paymentReceipt });
 
       if (!response.ok) {
         let apiError = null;
         try {
           const errData = await response.json();
-          if (errData && errData.error) apiError = errData.error;
+          if (errData?.error) {
+            apiError = typeof errData.error === 'string' ? errData.error : errData.error.message;
+          }
         } catch { /* ignore parse errors */ }
 
         let errorText;
@@ -402,9 +482,18 @@ function AuditButton() {
       setAuditReport({ markdown: data.message, address: message, network: selectedNetwork.id });
     } catch (e) {
       console.error('Audit request failed:', e);
-      const errorText = e instanceof TypeError
-        ? 'Could not reach the server. In Chrome, disable ad-block/privacy extensions for this site, then hard refresh and try again.'
-        : 'An unexpected error occurred while fetching the audit. Please try again.';
+      let errorText = 'An unexpected error occurred while fetching the audit. Please try again.';
+      if (e?.code === 'WALLET_NOT_FOUND') {
+        errorText = e.message;
+      } else if (e?.code === 'WRONG_NETWORK') {
+        errorText = e.message;
+      } else if (e?.code === 'PAYMENT_NOT_CONFIRMED') {
+        errorText = e.message;
+      } else if (e?.code === 'PAYMENT_CONFIG_MISSING') {
+        errorText = 'Payment is temporarily unavailable. Please contact support.';
+      } else if (e instanceof TypeError) {
+        errorText = 'Could not reach the server. In Chrome, disable ad-block/privacy extensions for this site, then hard refresh and try again.';
+      }
       setAuditError(errorText);
     } finally {
       setIsLoading(false);
