@@ -1,0 +1,14 @@
+import Head from 'next/head'
+
+export default function Page() {
+  return (
+    <>
+      <Head>
+        <title>My Page Title</title>
+        <meta name="description" content="My page description" />
+        <meta property="og:title" content="My Page Title" />
+      </Head>
+      <div>Your content</div>
+    </>
+  )
+}
