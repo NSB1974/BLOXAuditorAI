@@ -23,6 +23,17 @@ To install Metagoblins Scribble AI, follow these simple steps:
 
 # USE YOUR OWN IMAGES #
 
+## Site verification meta tag
+
+If your verification provider asks for a `<meta ...>` tag in `<head>`, set these deployment variables:
+
+- `NEXT_PUBLIC_BASE_APP_ID` (for Base Developer App verification; defaults to the current app id in code)
+- `NEXT_PUBLIC_SITE_VERIFICATION_NAME` (for example `google-site-verification`)
+- `NEXT_PUBLIC_SITE_VERIFICATION_CONTENT` (the verification token value)
+
+The app renders Base metadata (`name` + `property` variants of `base:app_id`) in both `pages/_document.js` and `pages/index.js` so crawlers can read it from initial HTML on the homepage.
+
+For deployment debugging, call `GET /api/verification` to check whether Base and verification metadata are configured. The endpoint returns `baseAppId`, `hasBaseAppId`, `configured`, and `metaName` (but never returns the verification token content).
 
 
 
