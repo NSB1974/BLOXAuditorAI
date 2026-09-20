@@ -41,6 +41,37 @@ async function fetchAuditWithRetry(payload, attempts = 2) {
   throw lastError || new Error('Failed to contact audit API');
 }
 
+async function getBasePaymentConfig() {
+  const tokenAddress = process.env.NEXT_PUBLIC_BLOXOLOGY_TOKEN_ADDRESS;
+  const treasuryAddress = process.env.NEXT_PUBLIC_AUDIT_TREASURY_ADDRESS;
+  const amount = process.env.NEXT_PUBLIC_AUDIT_REQUIRED_TOKEN_AMOUNT;
+
+  if (tokenAddress && treasuryAddress && amount) {
+    return { tokenAddress, treasuryAddress, amount };
+  }
+
+  const response = await fetch('/api/payment-config', {
+    method: 'GET',
+    headers: { accept: 'application/json' },
+  });
+
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload?.error?.message || 'Payment is not configured. Missing token, treasury, or amount environment variables.';
+    const err = new Error(message);
+    err.code = payload?.error?.code || 'PAYMENT_CONFIG_MISSING';
+    throw err;
+  }
+
+  if (!payload?.tokenAddress || !payload?.treasuryAddress || !payload?.amount) {
+    const err = new Error('Payment is not configured. Missing token, treasury, or amount environment variables.');
+    err.code = 'PAYMENT_CONFIG_MISSING';
+    throw err;
+  }
+
+  return payload;
+}
+
 async function payForBaseAudit() {
   if (typeof window === 'undefined' || !window.ethereum) {
     const err = new Error('Wallet not found. Please install MetaMask (or another EVM wallet) to pay on Base.');
@@ -48,15 +79,7 @@ async function payForBaseAudit() {
     throw err;
   }
 
-  const tokenAddress = process.env.NEXT_PUBLIC_BLOXOLOGY_TOKEN_ADDRESS;
-  const treasuryAddress = process.env.NEXT_PUBLIC_AUDIT_TREASURY_ADDRESS;
-  const amount = process.env.NEXT_PUBLIC_AUDIT_REQUIRED_TOKEN_AMOUNT;
-
-  if (!tokenAddress || !treasuryAddress || !amount) {
-    const err = new Error('Payment is not configured. Missing token, treasury, or amount environment variables.');
-    err.code = 'PAYMENT_CONFIG_MISSING';
-    throw err;
-  }
+  const { tokenAddress, treasuryAddress, amount } = await getBasePaymentConfig();
 
   const accounts = await window.ethereum.request({ method: 'eth_requestAccounts' });
   const payer = Array.isArray(accounts) && accounts.length > 0 ? accounts[0] : null;
