@@ -476,9 +476,12 @@ export default async function handler(req, res) {
     const safeAddress = address; // already validated as /^0x[a-fA-F0-9]{40}$/
 
     // Step 2: Send source code to AI service for audit
-    const xaiApiKey = process.env.CONSOLEXAI_API_KEY;
+    // `CONSOLEXAI_API_KEY` is the name used by the existing Vercel project.
+    // Also accept xAI's conventional name so new deployments do not need a
+    // project-specific secret name.
+    const xaiApiKey = process.env.CONSOLEXAI_API_KEY || process.env.XAI_API_KEY;
     if (!xaiApiKey) {
-      return res.status(500).json({ error: 'Server configuration error: CONSOLEXAI_API_KEY is not set.' });
+      return res.status(500).json({ error: 'Server configuration error: CONSOLEXAI_API_KEY or XAI_API_KEY is not set.' });
     }
 
     const prompt = `Perform a comprehensive smart contract security audit for the following ${network || 'Ethereum'} smart contract.\n\nContract Name: ${safeName}\nContract Address: ${safeAddress}\n\nSource Code:\n${sourceCode}\n\nPlease identify all vulnerabilities, security flaws, gas inefficiencies, and best-practice violations. Provide a detailed audit report.`;
@@ -486,7 +489,7 @@ export default async function handler(req, res) {
     let upstream;
     try {
       upstream = await fetchWithTimeout(
-        'https://api.0x0.ai/message',
+        'https://api.x.ai/v1/chat/completions',
         {
           method: 'POST',
           headers: {
@@ -494,7 +497,9 @@ export default async function handler(req, res) {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            message: prompt,
+            model: process.env.XAI_MODEL || 'grok-3-mini',
+            messages: [{ role: 'user', content: prompt }],
+            stream: false,
           }),
         },
         55000,
