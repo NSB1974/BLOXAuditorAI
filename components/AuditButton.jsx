@@ -377,8 +377,22 @@ function renderMarkdown(markdown) {
 
 // ── AuditReport display component ───────────────────────────────────────────
 
-function AuditReport({ markdown, address, network, policy, disclaimer, disposition, onClear }) {
+function AuditReport({ markdown, address, network, policy, disclaimer, disposition, report, onClear }) {
   const readinessApproved = disposition?.label?.startsWith('OK / Neutral');
+
+  const downloadReport = () => {
+    if (!report?.content || !report?.filename) return;
+
+    const blob = new Blob([report.content], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = report.filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="my-4 w-full max-w-3xl rounded-2xl overflow-hidden"
@@ -419,6 +433,13 @@ function AuditReport({ markdown, address, network, policy, disclaimer, dispositi
           <p className="font-semibold text-indigo-300">Audit-readiness, not a paid reputation label</p>
           <p className="mt-1 leading-relaxed">{disclaimer || 'This review supports audit readiness only. It is not a reputation score, certification, investment recommendation, or guarantee.'}</p>
         </aside>
+        {report?.sha256 && (
+          <section className="mt-4 rounded-xl border border-blue-700 bg-slate-950/60 p-4 text-sm text-blue-100" aria-label="Report integrity">
+            <p className="font-semibold text-blue-300">Report integrity</p>
+            <p className="mt-1 text-xs leading-relaxed text-blue-200">SHA-256 of the downloadable Markdown report. Hash the downloaded file to verify it has not changed.</p>
+            <code className="mt-2 block break-all rounded bg-black/30 p-2 text-xs text-cyan-200">{report.sha256}</code>
+          </section>
+        )}
       </div>
 
       {/* Report footer */}
@@ -427,13 +448,23 @@ function AuditReport({ markdown, address, network, policy, disclaimer, dispositi
         <span className="text-xs text-blue-500">
           {policy || 'Bloxology Audit Readiness Standard v1'} · {new Date().toLocaleString()}
         </span>
-        <button
-          onClick={onClear}
-          className="text-xs font-semibold text-indigo-400 hover:text-white transition px-3 py-1
-            rounded-lg border border-indigo-700 hover:border-indigo-400 hover:bg-indigo-900"
-        >
-          Clear Report
-        </button>
+        <div className="flex items-center gap-2">
+          {report?.content && (
+            <button
+              onClick={downloadReport}
+              className="text-xs font-semibold text-cyan-300 hover:text-white transition px-3 py-1 rounded-lg border border-cyan-700 hover:border-cyan-300 hover:bg-cyan-900"
+            >
+              Download .md
+            </button>
+          )}
+          <button
+            onClick={onClear}
+            className="text-xs font-semibold text-indigo-400 hover:text-white transition px-3 py-1
+              rounded-lg border border-indigo-700 hover:border-indigo-400 hover:bg-indigo-900"
+          >
+            Clear Report
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -519,6 +550,7 @@ function AuditButton() {
         policy: data.assessmentPolicy,
         disclaimer: data.reputationDisclaimer,
         disposition: data.disposition,
+        report: data.report,
       });
     } catch (e) {
       console.error('Audit request failed:', e);
@@ -704,6 +736,7 @@ function AuditButton() {
             policy={auditReport.policy}
             disclaimer={auditReport.disclaimer}
             disposition={auditReport.disposition}
+            report={auditReport.report}
             onClear={() => setAuditReport(null)}
           />
         )}

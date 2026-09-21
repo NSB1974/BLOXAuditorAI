@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+
 const ETH_ADDRESS_RE = /^0x[a-fA-F0-9]{40}$/;
 const MAX_PROXY_DEPTH = 1;
 const BASE_CHAIN_ID = 8453;
@@ -231,6 +233,33 @@ function issueReadinessDisposition(auditText) {
       ? 'The report contains a Critical or High finding that must be remediated and independently verified.'
       : 'The report did not satisfy the conservative evidence, disclosure, and disposition checks required for an OK / Neutral result.',
   };
+}
+
+function createDownloadableReport({ auditText, address, network, policy, disclaimer, disposition }) {
+  const generatedAt = new Date().toISOString();
+  const reportContent = [
+    '# Bloxology Audit Report',
+    '',
+    `- **Contract address:** ${address}`,
+    `- **Network:** ${network}`,
+    `- **Generated (UTC):** ${generatedAt}`,
+    `- **Assessment policy:** ${policy}`,
+    `- **Disposition:** ${disposition.label}`,
+    '',
+    '## Important notice',
+    '',
+    disclaimer,
+    '',
+    '---',
+    '',
+    auditText.trim(),
+    '',
+  ].join('\n');
+  const sha256 = createHash('sha256').update(reportContent, 'utf8').digest('hex');
+  const safeNetwork = network.replace(/[^a-z0-9-]/gi, '-').toLowerCase();
+  const filename = `bloxology-audit-${safeNetwork}-${address.toLowerCase()}-${generatedAt.slice(0, 10)}.md`;
+
+  return { content: reportContent, filename, generatedAt, sha256 };
 }
 
 async function getContractSource(address, network = 'ethereum', depth = 0) {
@@ -580,12 +609,23 @@ State that this is an AI-assisted source review, it does not assess deployed con
     }
 
     const disposition = issueReadinessDisposition(auditText);
+    const assessmentPolicy = 'Bloxology Audit Readiness Standard v1';
+    const reputationDisclaimer = 'This review supports audit readiness only. It is not a reputation score, certification, investment recommendation, or guarantee.';
+    const report = createDownloadableReport({
+      auditText,
+      address: safeAddress,
+      network,
+      policy: assessmentPolicy,
+      disclaimer: reputationDisclaimer,
+      disposition,
+    });
 
     return res.status(200).json({
       message: auditText,
-      assessmentPolicy: 'Bloxology Audit Readiness Standard v1',
-      reputationDisclaimer: 'This review supports audit readiness only. It is not a reputation score, certification, investment recommendation, or guarantee.',
+      assessmentPolicy,
+      reputationDisclaimer,
       disposition,
+      report,
     });
   } catch (e) {
     console.error('Audit request failed:', e.message);
