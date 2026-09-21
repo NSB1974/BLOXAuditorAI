@@ -6,8 +6,8 @@ export default function Home() {
     <>
       <div>
         <Head>
-          <title>Bloxology — AI Smart Contract Auditor</title>
-          <meta name="description" content="Bloxology AI smart contract auditor. Paste a contract address to detect vulnerabilities and generate a full audit report." />
+          <title>Bloxology — Audit Readiness Reviews</title>
+          <meta name="description" content="Evidence-led AI-assisted smart contract reviews that help token teams remediate risks and demonstrate audit readiness." />
           <meta name="viewport" content="width=device-width, initial-scale=1" />
           <link rel="icon" href="/bloxology-logo.svg" />
         </Head>
